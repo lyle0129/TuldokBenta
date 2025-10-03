@@ -302,6 +302,42 @@ app.put("/api/open-sales/:id", async (req, res) => {
     const { id } = req.params;
     const { items } = req.body;
 
+    const existingSale = await sql`SELECT * FROM open_sales WHERE id = ${id}`;
+    if (existingSale.length === 0) {
+      return res.status(404).json({ message: "Sale not found" });
+    }
+
+    const oldItems = existingSale[0].items;
+
+    // ✅ Restock old inventory items
+    for (const oldItem of oldItems) {
+      if (oldItem.type === "item") {
+        await sql`
+          UPDATE inventory
+          SET stock = stock + ${oldItem.qty}
+          WHERE item_name = ${oldItem.item_name}
+        `;
+      }
+    }
+
+    // ✅ Deduct stock for new items
+    for (const newItem of items) {
+      if (newItem.type === "item") {
+        const existing = await sql`SELECT * FROM inventory WHERE item_name = ${newItem.item_name}`;
+        if (existing.length === 0) {
+          return res.status(400).json({ message: `Item ${newItem.item_name} not found in inventory` });
+        }
+        if (existing[0].stock < newItem.qty) {
+          return res.status(400).json({ message: `Not enough stock for ${newItem.item_name}` });
+        }
+        await sql`
+          UPDATE inventory
+          SET stock = stock - ${newItem.qty}
+          WHERE item_name = ${newItem.item_name}
+        `;
+      }
+    }
+
     const updated = await sql`
       UPDATE open_sales
       SET items = ${JSON.stringify(items)}
@@ -319,6 +355,21 @@ app.put("/api/open-sales/:id", async (req, res) => {
 app.delete("/api/open-sales/:id", async (req, res) => {
   try {
     const { id } = req.params;
+
+    const sale = await sql`SELECT * FROM open_sales WHERE id = ${id}`;
+    if (sale.length === 0) return res.status(404).json({ message: "Sale not found" });
+    const items = sale[0].items;
+
+    // ✅ Restock only inventory items
+    for (const item of items) {
+      if (item.type === "item") {
+        await sql`
+          UPDATE inventory
+          SET stock = stock + ${item.qty}
+          WHERE item_name = ${item.item_name}
+        `;
+      }
+    }
     
     const deleted = await sql`DELETE FROM open_sales WHERE id = ${id} RETURNING *`;
     if (deleted.length === 0) return res.status(404).json({ message: "Sale not found" });
