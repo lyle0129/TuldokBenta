@@ -155,23 +155,60 @@ app.get("/api/inventory", async (req, res) => {
   }
 });
 
+// app.post("/api/inventory", async (req, res) => {
+//   try {
+//     const { item_name, price, stock } = req.body;
+//     if (!item_name || price === undefined) {
+//       return res.status(400).json({ message: "Item name and price are required" });
+//     }
+//     const item = await sql`
+//       INSERT INTO inventory (item_name, price, stock)
+//       VALUES (${item_name}, ${price}, ${stock || 0})
+//       RETURNING *
+//     `; 
+//     res.status(201).json(item[0]);
+//   } catch (error) {
+//     console.error("Error adding inventory item", error);
+//     res.status(500).json({ message: "Internal Server Error" });
+//   }
+// }); // handle when i have the same item_name that already exist in the table, i will just add the already existing stock to the item.
+
 app.post("/api/inventory", async (req, res) => {
   try {
     const { item_name, price, stock } = req.body;
     if (!item_name || price === undefined) {
       return res.status(400).json({ message: "Item name and price are required" });
     }
-    const item = await sql`
-      INSERT INTO inventory (item_name, price, stock)
-      VALUES (${item_name}, ${price}, ${stock || 0})
-      RETURNING *
-    `;
-    res.status(201).json(item[0]);
+
+    // ✅ Check if the item already exists
+    const existing = await sql`SELECT * FROM inventory WHERE item_name = ${item_name}`;
+    
+    if (existing.length > 0) {
+      // ✅ Update stock if item exists
+      const updated = await sql`
+        UPDATE inventory
+        SET stock = stock + ${stock || 0}, 
+            price = ${price} -- optional: update price to latest provided
+        WHERE item_name = ${item_name}
+        RETURNING *
+      `;
+      return res.status(200).json(updated[0]);
+    } else {
+      // ✅ Insert new item if it doesn’t exist
+      const item = await sql`
+        INSERT INTO inventory (item_name, price, stock)
+        VALUES (${item_name}, ${price}, ${stock || 0})
+        RETURNING *
+      `;
+      return res.status(201).json(item[0]);
+    }
+
   } catch (error) {
     console.error("Error adding inventory item", error);
     res.status(500).json({ message: "Internal Server Error" });
   }
 });
+
 
 app.put("/api/inventory/:id", async (req, res) => {
   try {
@@ -225,15 +262,26 @@ app.post("/api/open-sales", async (req, res) => {
       return res.status(400).json({ message: "Invoice number and items are required" });
     }
 
-    // ✅ Deduct stock immediately for items
+     // ✅ Deduct stock only for inventory items
     for (const item of items) {
-      if (item.type === "item") {
+      if (item.type === "item") {// i think checking item type is wrong cuz items above doesnt store type
+        // Check stock availability
+        const existing = await sql`SELECT * FROM inventory WHERE item_name = ${item.item_name}`;
+        if (existing.length === 0) {
+          return res.status(400).json({ message: `Item ${item.item_name} not found in inventory` });
+        }
+        if (existing[0].stock < item.qty) {
+          return res.status(400).json({ message: `Not enough stock for ${item.item_name}` });
+        }
+
+        // Deduct stock
         await sql`
           UPDATE inventory
-          SET stock = stock - ${item.quantity}
-          WHERE id = ${item.refId}
+          SET stock = stock - ${item.qty}
+          WHERE item_name = ${item.item_name}
         `;
       }
+      // if type === "service", do nothing ✅
     }
 
     const sale = await sql`
@@ -248,6 +296,7 @@ app.post("/api/open-sales", async (req, res) => {
   }
 });
 
+// to edit Put and delete yung sa pagchange ng stocks
 app.put("/api/open-sales/:id", async (req, res) => {
   try {
     const { id } = req.params;
