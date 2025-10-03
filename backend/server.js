@@ -53,6 +53,7 @@ async function initDB() {
         item_name VARCHAR(255) UNIQUE NOT NULL,
         price DECIMAL(10,2) NOT NULL,
         stock INT NOT NULL DEFAULT 0,
+        item_class VARCHAR(100), -- ✅ NEW COLUMN
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `;
@@ -62,6 +63,7 @@ async function initDB() {
         id SERIAL PRIMARY KEY,
         service_name VARCHAR(255) UNIQUE NOT NULL,
         price DECIMAL(10,2) NOT NULL,
+        freebies JSONB DEFAULT '[]', -- ✅ NEW COLUMN
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `;
@@ -95,13 +97,14 @@ app.get("/api/services", async (req, res) => {
 
 app.post("/api/services", async (req, res) => {
   try {
-    const { service_name, price } = req.body;
+    const { service_name, price, freebies } = req.body;
     if (!service_name || price === undefined) {
       return res.status(400).json({ message: "Service name and price are required" });
     }
+
     const service = await sql`
-      INSERT INTO services (service_name, price)
-      VALUES (${service_name}, ${price})
+      INSERT INTO services (service_name, price, freebies)
+      VALUES (${service_name}, ${price}, ${JSON.stringify(freebies || [])})
       RETURNING *
     `;
     res.status(201).json(service[0]);
@@ -114,11 +117,12 @@ app.post("/api/services", async (req, res) => {
 app.put("/api/services/:id", async (req, res) => {
   try {
     const { id } = req.params;
-    const { service_name, price } = req.body;
+    const { service_name, price, freebies } = req.body;
     const updated = await sql`
       UPDATE services
       SET service_name = COALESCE(${service_name}, service_name),
-          price = COALESCE(${price}, price)
+          price = COALESCE(${price}, price),
+          freebies = COALESCE(${JSON.stringify(freebies)}, freebies)
       WHERE id = ${id}
       RETURNING *
     `;
@@ -155,54 +159,32 @@ app.get("/api/inventory", async (req, res) => {
   }
 });
 
-// app.post("/api/inventory", async (req, res) => {
-//   try {
-//     const { item_name, price, stock } = req.body;
-//     if (!item_name || price === undefined) {
-//       return res.status(400).json({ message: "Item name and price are required" });
-//     }
-//     const item = await sql`
-//       INSERT INTO inventory (item_name, price, stock)
-//       VALUES (${item_name}, ${price}, ${stock || 0})
-//       RETURNING *
-//     `; 
-//     res.status(201).json(item[0]);
-//   } catch (error) {
-//     console.error("Error adding inventory item", error);
-//     res.status(500).json({ message: "Internal Server Error" });
-//   }
-// }); // handle when i have the same item_name that already exist in the table, i will just add the already existing stock to the item.
-
 app.post("/api/inventory", async (req, res) => {
   try {
-    const { item_name, price, stock } = req.body;
+    const { item_name, price, stock, item_class } = req.body;
     if (!item_name || price === undefined) {
       return res.status(400).json({ message: "Item name and price are required" });
     }
 
-    // ✅ Check if the item already exists
     const existing = await sql`SELECT * FROM inventory WHERE item_name = ${item_name}`;
-    
     if (existing.length > 0) {
-      // ✅ Update stock if item exists
       const updated = await sql`
         UPDATE inventory
         SET stock = stock + ${stock || 0}, 
-            price = ${price} -- optional: update price to latest provided
+            price = ${price},
+            item_class = COALESCE(${item_class}, item_class)
         WHERE item_name = ${item_name}
         RETURNING *
       `;
       return res.status(200).json(updated[0]);
     } else {
-      // ✅ Insert new item if it doesn’t exist
       const item = await sql`
-        INSERT INTO inventory (item_name, price, stock)
-        VALUES (${item_name}, ${price}, ${stock || 0})
+        INSERT INTO inventory (item_name, price, stock, item_class)
+        VALUES (${item_name}, ${price}, ${stock || 0}, ${item_class})
         RETURNING *
       `;
       return res.status(201).json(item[0]);
     }
-
   } catch (error) {
     console.error("Error adding inventory item", error);
     res.status(500).json({ message: "Internal Server Error" });
@@ -213,12 +195,13 @@ app.post("/api/inventory", async (req, res) => {
 app.put("/api/inventory/:id", async (req, res) => {
   try {
     const { id } = req.params;
-    const { item_name, price, stock } = req.body;
+    const { item_name, price, stock, item_class } = req.body;
     const updated = await sql`
       UPDATE inventory
       SET item_name = COALESCE(${item_name}, item_name),
           price = COALESCE(${price}, price),
-          stock = COALESCE(${stock}, stock)
+          stock = COALESCE(${stock}, stock),
+          item_class = COALESCE(${item_class}, item_class)
       WHERE id = ${id}
       RETURNING *
     `;
