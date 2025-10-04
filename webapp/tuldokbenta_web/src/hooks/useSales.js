@@ -58,12 +58,12 @@ export const useSales = () => {
     }
   };
 
-  const updateOpenSale = async (id, items) => {
+  const updateOpenSale = async (id, sale) => {
     try {
       const res = await fetch(`${API_URL}/open-sales/${id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ items }),
+        body: JSON.stringify(sale), // send full sale
       });
       if (!res.ok) throw new Error("Failed to update open sale");
       await loadSales();
