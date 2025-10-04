@@ -53,7 +53,7 @@ async function initDB() {
         item_name VARCHAR(255) UNIQUE NOT NULL,
         price DECIMAL(10,2) NOT NULL,
         stock INT NOT NULL DEFAULT 0,
-        item_class VARCHAR(100), -- ✅ NEW COLUMN
+        item_classification VARCHAR(100), -- ✅ NEW COLUMN
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `;
@@ -161,7 +161,7 @@ app.get("/api/inventory", async (req, res) => {
 
 app.post("/api/inventory", async (req, res) => {
   try {
-    const { item_name, price, stock, item_class } = req.body;
+    const { item_name, price, stock, item_classification } = req.body;
     if (!item_name || price === undefined) {
       return res.status(400).json({ message: "Item name and price are required" });
     }
@@ -172,15 +172,15 @@ app.post("/api/inventory", async (req, res) => {
         UPDATE inventory
         SET stock = stock + ${stock || 0}, 
             price = ${price},
-            item_class = COALESCE(${item_class}, item_class)
+            item_classification = COALESCE(${item_classification}, item_classification)
         WHERE item_name = ${item_name}
         RETURNING *
       `;
       return res.status(200).json(updated[0]);
     } else {
       const item = await sql`
-        INSERT INTO inventory (item_name, price, stock, item_class)
-        VALUES (${item_name}, ${price}, ${stock || 0}, ${item_class})
+        INSERT INTO inventory (item_name, price, stock, item_classification)
+        VALUES (${item_name}, ${price}, ${stock || 0}, ${item_classification})
         RETURNING *
       `;
       return res.status(201).json(item[0]);
@@ -195,13 +195,13 @@ app.post("/api/inventory", async (req, res) => {
 app.put("/api/inventory/:id", async (req, res) => {
   try {
     const { id } = req.params;
-    const { item_name, price, stock, item_class } = req.body;
+    const { item_name, price, stock, item_classification } = req.body;
     const updated = await sql`
       UPDATE inventory
       SET item_name = COALESCE(${item_name}, item_name),
           price = COALESCE(${price}, price),
           stock = COALESCE(${stock}, stock),
-          item_class = COALESCE(${item_class}, item_class)
+          item_classification = COALESCE(${item_classification}, item_classification)
       WHERE id = ${id}
       RETURNING *
     `;
@@ -230,7 +230,13 @@ app.delete("/api/inventory/:id", async (req, res) => {
 // ===============================
 app.get("/api/open-sales", async (req, res) => {
   try {
-    const sales = await sql`SELECT * FROM open_sales ORDER BY created_at DESC`;
+    const { lowdate, highdate } = req.query;
+
+    const dateFilter = (lowdate && highdate)
+      ? sql` AND paid_at BETWEEN ${lowdate} AND ${highdate} `
+      : sql``;
+    
+    const sales = await sql`SELECT * FROM open_sales WHERE 1=1 ${dateFilter} ORDER BY created_at DESC`;
     res.status(200).json(sales);
   } catch (error) {
     console.error("Error fetching open sales", error);
@@ -433,8 +439,14 @@ app.post("/api/revert-sale/:id", async (req, res) => {
 // ===============================
 app.get("/api/closed-sales", async (req, res) => {
   try {
+    const { lowdate, highdate } = req.query;
+
+    const dateFilter = (lowdate && highdate)
+      ? sql` AND paid_at BETWEEN ${lowdate} AND ${highdate} `
+      : sql``;
+
     const sales =
-      await sql`SELECT * FROM closed_sales ORDER BY paid_at DESC`;
+      await sql`SELECT * FROM closed_sales WHERE 1=1 ${dateFilter} ORDER BY paid_at DESC`;
     res.status(200).json(sales);
   } catch (error) {
     console.error("Error fetching closed sales", error);
