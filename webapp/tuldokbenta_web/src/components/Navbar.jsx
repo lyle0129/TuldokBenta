@@ -11,7 +11,7 @@ const Navbar = () => {
     <nav className="bg-white shadow-md">
       <div className="max-w-6xl mx-auto flex items-center justify-between px-6 py-3">
         <Link to="/" className="text-xl font-bold text-blue-600">
-          Cashly Dashboard
+          TuldokBenta Dashboard
         </Link>
         <div className="flex gap-4">
           <NavLink to="/open-sales" className={linkClasses}>
@@ -26,7 +26,7 @@ const Navbar = () => {
           <NavLink to="/services" className={linkClasses}>
             Services
           </NavLink>
-          <NavLink to="/SalesReporting" className={linkClasses}>
+          <NavLink to="/reporting" className={linkClasses}>
             Reporting
           </NavLink>
         </div>

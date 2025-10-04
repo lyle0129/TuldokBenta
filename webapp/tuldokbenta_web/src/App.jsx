@@ -4,6 +4,7 @@ import Inventory from "./pages/Inventory";
 import Services from "./pages/Services";
 import OpenSales from "./pages/OpenSales";
 import ClosedSales from "./pages/ClosedSales";
+import Reporting from "./pages/Reporting";
 
 function App() {
   return (
@@ -15,7 +16,7 @@ function App() {
         <Route path="/services" element={<Services />} />
         <Route path="/open-sales" element={<OpenSales />} />
         <Route path="/closed-sales" element={<ClosedSales />} />
-        {/* <Route path="/SalesReporting" element={<SalesReporting />} /> */}
+        <Route path="/reporting" element={<Reporting />} />
       </Routes>
     </Router>
   );

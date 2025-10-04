@@ -50,10 +50,10 @@ const OpenSales = () => {
   // Add inventory item to cart
   const addInventoryToCart = (item) => {
     setCart((prev) => {
-      const existing = prev.find((i) => i.type === "inventory" && i.id === item._id);
+      const existing = prev.find((i) => i.type === "inventory" && i.id === item.id);
       if (existing) {
         return prev.map((i) =>
-          i.id === item._id && i.type === "inventory"
+          i.id === item.id && i.type === "inventory"
             ? { ...i, quantity: i.quantity + 1 }
             : i
         );
@@ -62,7 +62,7 @@ const OpenSales = () => {
         ...prev,
         {
           type: "inventory",
-          id: item._id,
+          id: item.id,
           name: item.item_name,
           price: item.price,
           quantity: 1,
@@ -397,7 +397,7 @@ const handleCheckout = async () => {
                                           (inv) => inv.item_classification === f.classification
                                         )
                                         .map((inv) => (
-                                          <option key={inv._id} value={inv.item_name}>
+                                          <option key={inv.id} value={inv.item_name}>
                                             {inv.item_name}
                                           </option>
                                         ))}
