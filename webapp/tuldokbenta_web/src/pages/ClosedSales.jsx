@@ -1,25 +1,26 @@
-import { useEffect } from "react";
-import { useApi } from "../hooks/useApi";
+import React, { useEffect } from "react";
+import { useSales } from "../hooks/useSales";
+import ListClosedSales from "../components/ListClosedSales";
 
-export default function ClosedSales() {
-  const { data: sales, fetchData: fetchSales } = useApi(
-    "http://localhost:5001/api/closed-sales"
-  );
+const ClosedSales = () => {
+  const { closedSales, loadSales, revertSale, deleteClosedSale, isLoading } = useSales();
 
   useEffect(() => {
-    fetchSales();
-  }, [fetchSales]);
+    loadSales();
+  }, [loadSales]);
+
+  if (isLoading) return <p>Loading sales...</p>;
 
   return (
-    <div className="p-6">
-      <h2 className="text-2xl font-bold mb-4">Closed Sales</h2>
-      <ul>
-        {sales.map((s) => (
-          <li key={s.id} className="border p-2 mb-2">
-            {s.invoice_number} - Paid by {s.paid_using}
-          </li>
-        ))}
-      </ul>
+    <div className="container mx-auto px-4 py-6">
+      <h1 className="text-3xl font-bold mb-6">Closed Sales</h1>
+      <ListClosedSales
+        closedSales={closedSales}
+        revertSale={revertSale}
+        deleteClosedSale={deleteClosedSale}
+      />
     </div>
   );
-}
+};
+
+export default ClosedSales;

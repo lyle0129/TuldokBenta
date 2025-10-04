@@ -15,7 +15,23 @@ const ListSales = ({
   const [paymentMethod, setPaymentMethod] = useState("");
   const [invoiceSale, setInvoiceSale] = useState(null);
 
-  const invoiceRef = useRef();
+    // 🧭 Pagination states
+    const [currentPage, setCurrentPage] = useState(1);
+    const salesPerPage = 10;
+  
+    const invoiceRef = useRef();
+  
+    // 🧮 Pagination logic
+    const indexOfLastSale = currentPage * salesPerPage;
+    const indexOfFirstSale = indexOfLastSale - salesPerPage;
+    const currentSales = openSales.slice(indexOfFirstSale, indexOfLastSale);
+    const totalPages = Math.ceil(openSales.length / salesPerPage);
+  
+    const handlePageChange = (pageNumber) => {
+      if (pageNumber >= 1 && pageNumber <= totalPages) {
+        setCurrentPage(pageNumber);
+      }
+    };
 
   const handlePrint = (sale) => {
     setInvoiceSale(sale);
@@ -139,71 +155,111 @@ const ListSales = ({
       {openSales.length === 0 ? (
         <p className="text-gray-500">No open sales yet.</p>
       ) : (
-        <div className="space-y-4">
-          {openSales.map((sale) => {
-            const total = sale.items.reduce(
-              (sum, it) => sum + Number(it.price) * (it.qty || 1),
-              0
-            );
+        <>
+          <div className="space-y-4">
+            {currentSales.map((sale) => {
+              const total = sale.items.reduce(
+                (sum, it) => sum + Number(it.price) * (it.qty || 1),
+                0
+              );
 
-            return (
-              <div
-                key={sale.id}
-                className="border rounded-lg shadow p-4 flex justify-between items-center"
+              return (
+                <div
+                  key={sale.id}
+                  className="border rounded-lg shadow p-4 flex justify-between items-center"
+                >
+                  <div>
+                    <h3 className="font-semibold">Invoice #{sale.invoice_number}</h3>
+
+                    {/* Add created date */}
+                    <p className="text-sm text-gray-500">
+                      Created at: {new Date(sale.created_at).toLocaleString()}
+                    </p>
+                    <p>Total: ${total.toFixed(2)}</p>
+
+                    <ul className="text-sm text-gray-600 list-disc pl-5">
+                      {sale.items.map((it, i) => (
+                        <li key={i}>
+                          {it.type === "service"
+                            ? `${it.service_name} x${it.qty || 1}`
+                            : `${it.item_name} x${it.qty || 1}`}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+
+                  <div className="flex space-x-3">
+                    <button
+                      onClick={() => {
+                        setEditingSale(JSON.parse(JSON.stringify(sale)));
+                        setShowModal(true);
+                      }}
+                      className="text-blue-600 hover:text-blue-800 text-sm"
+                    >
+                      Edit
+                    </button>
+
+                    <button
+                      onClick={() => deleteOpenSale(sale.id)}
+                      className="text-red-600 hover:text-red-800 text-sm"
+                    >
+                      Delete
+                    </button>
+
+                    <button
+                      onClick={() => setPayingSale(sale)}
+                      className="text-purple-600 hover:text-purple-800 text-sm"
+                    >
+                      Pay
+                    </button>
+
+                    <button
+                      onClick={() => handlePrint(sale)}
+                      className="text-green-600 hover:text-green-800 text-sm"
+                    >
+                      Print Receipt
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* 🧭 Pagination controls */}
+          <div className="flex justify-center items-center mt-6 space-x-2">
+            <button
+              onClick={() => handlePageChange(currentPage - 1)}
+              disabled={currentPage === 1}
+              className="px-3 py-1 bg-gray-200 rounded disabled:opacity-50"
+            >
+              Previous
+            </button>
+
+            {Array.from({ length: totalPages }, (_, i) => (
+              <button
+                key={i + 1}
+                onClick={() => handlePageChange(i + 1)}
+                className={`px-3 py-1 rounded ${
+                  currentPage === i + 1
+                    ? "bg-blue-600 text-white"
+                    : "bg-gray-200 hover:bg-gray-300"
+                }`}
               >
-                <div>
-                  <h3 className="font-semibold">Invoice #{sale.invoice_number}</h3>
-                  <p>Total: ${total.toFixed(2)}</p>
+                {i + 1}
+              </button>
+            ))}
 
-                  <ul className="text-sm text-gray-600 list-disc pl-5">
-                    {sale.items.map((it, i) => (
-                      <li key={i}>
-                        {it.type === "service"
-                          ? `${it.service_name} x${it.qty || 1}`
-                          : `${it.item_name} x${it.qty || 1}`}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-
-                <div className="flex space-x-3">
-                  <button
-                    onClick={() => {
-                      setEditingSale(JSON.parse(JSON.stringify(sale)));
-                      setShowModal(true);
-                    }}
-                    className="text-blue-600 hover:text-blue-800 text-sm"
-                  >
-                    Edit
-                  </button>
-
-                  <button
-                    onClick={() => deleteOpenSale(sale.id)}
-                    className="text-red-600 hover:text-red-800 text-sm"
-                  >
-                    Delete
-                  </button>
-
-                  <button
-                    onClick={() => setPayingSale(sale)}
-                    className="text-purple-600 hover:text-purple-800 text-sm"
-                  >
-                    Pay
-                  </button>
-
-                  <button
-                    onClick={() => handlePrint(sale)}
-                    className="text-green-600 hover:text-green-800 text-sm"
-                  >
-                    Print Receipt
-                  </button>
-
-                </div>
-              </div>
-            );
-          })}
-        </div>
+            <button
+              onClick={() => handlePageChange(currentPage + 1)}
+              disabled={currentPage === totalPages}
+              className="px-3 py-1 bg-gray-200 rounded disabled:opacity-50"
+            >
+              Next
+            </button>
+          </div>
+        </>
       )}
+
 
       {/* EDIT MODAL */}
       {showModal && editingSale && (

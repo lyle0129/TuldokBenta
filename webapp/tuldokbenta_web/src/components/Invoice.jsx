@@ -44,7 +44,8 @@ const Invoice = forwardRef(({ sale }, ref) => {
       </div>
 
       <p>Invoice #: {sale.invoice_number}</p>
-      <p>Date: {new Date().toLocaleString()}</p>
+      <p>Date: {new Date(sale.created_at).toLocaleString()}</p>
+      {sale.paid_at && <p>Paid: {new Date(sale.paid_at).toLocaleString()}</p>}
       <hr />
 
       {/* 🧾 ITEMS */}
