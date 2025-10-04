@@ -80,28 +80,105 @@ const OpenSales = () => {
           quantity: 1,
           freebies: service.freebies.map((cls) => ({
             classification: cls,
-            choice: null,
-          })),
+            choices: [], // always use choices array
+          })),          
         },
       ];
     });
   };
 
-  // Update freebie choice
-  const updateFreebieChoice = (serviceId, classification, choice) => {
+  const addFreebieChoice = (itemId, classification) => {
     setCart((prev) =>
-      prev.map((item) =>
-        item.type === "service" && item.id === serviceId
+      prev.map((cartItem) =>
+        cartItem.id === itemId && cartItem.type === "service"
           ? {
-              ...item,
-              freebies: item.freebies.map((f) =>
-                f.classification === classification ? { ...f, choice } : f
-              ),
+              ...cartItem,
+              freebies: cartItem.freebies.map((f) =>
+                f.classification === classification
+                  ? {
+                      ...f,
+                      choices: [...(f.choices || []), { item: "", qty: 1 }]
+                    }
+                  : f
+              )
             }
-          : item
+          : cartItem
       )
     );
   };
+  
+  const updateFreebieChoice = (itemId, classification, itemName, cIdx) => {
+    setCart((prev) =>
+      prev.map((cartItem) =>
+        cartItem.id === itemId && cartItem.type === "service"
+          ? {
+              ...cartItem,
+              freebies: cartItem.freebies.map((f) =>
+                f.classification === classification
+                  ? {
+                      ...f,
+                      choices: f.choices.map((c, i) =>
+                        i === cIdx ? { ...c, item: itemName } : c
+                      )
+                    }
+                  : f
+              )
+            }
+          : cartItem
+      )
+    );
+  };
+  
+  const updateFreebieQuantity = (itemId, classification, cIdx, qty) => {
+    setCart((prev) =>
+      prev.map((cartItem) => {
+        if (cartItem.id === itemId && cartItem.type === "service") {
+          return {
+            ...cartItem,
+            freebies: cartItem.freebies.map((f) => {
+              if (f.classification === classification) {
+                const totalOther = f.choices.reduce(
+                  (sum, c, i) => (i === cIdx ? sum : sum + c.qty),
+                  0
+                );
+                const maxAllowed = cartItem.quantity - totalOther;
+                return {
+                  ...f,
+                  choices: f.choices.map((c, i) =>
+                    i === cIdx ? { ...c, qty: Math.min(qty, maxAllowed) } : c
+                  ),
+                };
+              }
+              return f;
+            }),
+          };
+        }
+        return cartItem;
+      })
+    );
+  };
+  
+  
+  const removeFreebieChoice = (itemId, classification, cIdx) => {
+    setCart((prev) =>
+      prev.map((cartItem) =>
+        cartItem.id === itemId && cartItem.type === "service"
+          ? {
+              ...cartItem,
+              freebies: cartItem.freebies.map((f) =>
+                f.classification === classification
+                  ? {
+                      ...f,
+                      choices: f.choices.filter((_, i) => i !== cIdx)
+                    }
+                  : f
+              )
+            }
+          : cartItem
+      )
+    );
+  };
+  
 
   // Update quantity
   const updateQuantity = (id, type, change) => {
@@ -141,12 +218,16 @@ const handleCheckout = async () => {
 
       // Convert freebies into "item" entries with price 0
       const freebieEntries =
-        i.freebies?.filter((f) => f.choice).map((f) => ({
-          type: "item",
-          item_name: f.choice,
-          qty: i.quantity, // same qty as the service
-          price: 0,
-        })) || [];
+      i.freebies?.flatMap((f) =>
+        f.choices
+          ?.filter((c) => c.item) // only keep selected items
+          .map((c) => ({
+            type: "item",
+            item_name: c.item,
+            qty: c.qty,
+            price: 0,
+          })) || []
+      ) || [];
 
       return [serviceEntry, ...freebieEntries];
     }
@@ -231,78 +312,153 @@ const handleCheckout = async () => {
             {cart.length === 0 ? (
               <p className="text-gray-500">No items in cart.</p>
             ) : (
-              cart.map((item, idx) => (
-                <div key={idx} className="border-b pb-2 flex justify-between items-start">
-                  <div className="flex-1">
-                    <h3 className="font-medium">{item.name}</h3>
+              <>
+                {/* ✅ Cart Total */}
+                <div className="flex justify-between items-center border-b pb-2 mb-2">
+                  <span className="font-semibold text-lg">Total</span>
+                  <span className="font-bold text-xl">
+                    $
+                    {cart
+                      .reduce((sum, item) => sum + item.price * item.quantity, 0)
+                      .toFixed(2)}
+                  </span>
+                </div>
 
-                    {/* Quantity Controls */}
-                    <div className="flex items-center space-x-2 mt-1">
-                      <button
-                        onClick={() => updateQuantity(item.id, item.type, -1)}
-                        className="px-2 py-1 bg-gray-200 rounded hover:bg-gray-300"
-                      >
-                        –
-                      </button>
-                      <span>{item.quantity}</span>
-                      <button
-                        onClick={() => updateQuantity(item.id, item.type, +1)}
-                        className="px-2 py-1 bg-gray-200 rounded hover:bg-gray-300"
-                      >
-                        +
-                      </button>
+                {/* Cart Items */}
+                {cart.map((item, idx) => (
+                  <div
+                    key={idx}
+                    className="border-b pb-2 flex justify-between items-start"
+                  >
+                    <div className="flex-1">
+                      <h3 className="font-medium">{item.name}</h3>
+
+                      {/* Quantity Controls */}
+                      <div className="flex items-center space-x-2 mt-1">
+                        <button
+                          onClick={() => updateQuantity(item.id, item.type, -1)}
+                          className="px-2 py-1 bg-gray-200 rounded hover:bg-gray-300"
+                        >
+                          –
+                        </button>
+                        <span>{item.quantity}</span>
+                        <button
+                          onClick={() => updateQuantity(item.id, item.type, +1)}
+                          className="px-2 py-1 bg-gray-200 rounded hover:bg-gray-300"
+                        >
+                          +
+                        </button>
+                      </div>
+
+                      {/* Freebie dropdowns for services */}
+                      {item.type === "service" && item.freebies.length > 0 && (
+                        <div className="mt-2 space-y-2">
+                          {item.freebies.map((f, fIdx) => {
+                            const freebieSlots = item.quantity; // how many freebies allowed
+                            const totalUsed = f.choices?.reduce((sum, c) => sum + c.qty, 0) || 0;
+                            const remaining = freebieSlots - totalUsed;
+
+                            return (
+                              <div key={fIdx}>
+                                <label className="block text-sm text-gray-600 mb-1">
+                                  Choose {f.classification} ({freebieSlots} free):
+                                </label>
+
+                                {/* Existing choices */}
+                                {f.choices?.map((choice, cIdx) => (
+                                  <div key={cIdx} className="flex items-center space-x-2 mb-2">
+                                    <select
+                                      value={choice.item || ""}
+                                      onChange={(e) =>
+                                        updateFreebieChoice(
+                                          item.id,
+                                          f.classification,
+                                          e.target.value,
+                                          cIdx
+                                        )
+                                      }
+                                      className="flex-1 border px-2 py-1 rounded-md"
+                                    >
+                                      <option value="">-- Select --</option>
+                                      {inventory
+                                        .filter(
+                                          (inv) => inv.item_classification === f.classification
+                                        )
+                                        .map((inv) => (
+                                          <option key={inv._id} value={inv.item_name}>
+                                            {inv.item_name}
+                                          </option>
+                                        ))}
+                                    </select>
+
+                                    <input
+                                      type="number"
+                                      min="1"
+                                      max={freebieSlots}
+                                      value={choice.qty}
+                                      onChange={(e) =>
+                                        updateFreebieQuantity(
+                                          item.id,
+                                          f.classification,
+                                          cIdx,
+                                          Number(e.target.value)
+                                        )
+                                      }
+                                      className="w-16 border px-2 py-1 rounded-md"
+                                    />
+
+                                    <button
+                                      onClick={() =>
+                                        removeFreebieChoice(item.id, f.classification, cIdx)
+                                      }
+                                      className="text-red-600 hover:text-red-800 text-sm"
+                                    >
+                                      ✕
+                                    </button>
+                                  </div>
+                                ))}
+
+                                {/* Add new choice if remaining slots */}
+                                {remaining > 0 && (
+                                  <button
+                                    onClick={() => addFreebieChoice(item.id, f.classification)}
+                                    className="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300 text-sm"
+                                  >
+                                    + Add {f.classification}
+                                  </button>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+
                     </div>
 
-                    {/* Freebie dropdowns for services */}
-                    {item.type === "service" && item.freebies.length > 0 && (
-                      <div className="mt-2 space-y-2">
-                        {item.freebies.map((f, fIdx) => (
-                          <div key={fIdx}>
-                            <label className="block text-sm text-gray-600 mb-1">
-                              Choose {f.classification}:
-                            </label>
-                            <select
-                              value={f.choice || ""}
-                              onChange={(e) =>
-                                updateFreebieChoice(item.id, f.classification, e.target.value)
-                              }
-                              className="w-full border px-2 py-1 rounded-md"
-                            >
-                              <option value="">-- Select --</option>
-                              {inventory
-                                .filter((inv) => inv.item_classification === f.classification)
-                                .map((inv) => (
-                                  <option key={inv._id} value={inv.item_name}>
-                                    {inv.item_name}
-                                  </option>
-                                ))}
-                            </select>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Right side: Price + Delete */}
-                  <div className="flex flex-col items-end">
-                    <span className="font-semibold">
-                      ${(item.price * item.quantity).toFixed(2)}
-                    </span>
-                    <button
-                      onClick={() =>
-                        setCart((prev) =>
-                          prev.filter(
-                            (cartItem) => !(cartItem.id === item.id && cartItem.type === item.type)
+                    {/* Right side: Price + Delete */}
+                    <div className="flex flex-col items-end">
+                      <span className="font-semibold">
+                        ${(item.price * item.quantity).toFixed(2)}
+                      </span>
+                      <button
+                        onClick={() =>
+                          setCart((prev) =>
+                            prev.filter(
+                              (cartItem) =>
+                                !(
+                                  cartItem.id === item.id && cartItem.type === item.type
+                                )
+                            )
                           )
-                        )
-                      }
-                      className="mt-2 text-red-600 hover:text-red-800 text-sm"
-                    >
-                      Remove
-                    </button>
+                        }
+                        className="mt-2 text-red-600 hover:text-red-800 text-sm"
+                      >
+                        Remove
+                      </button>
+                    </div>
                   </div>
-                </div>
-              ))
+                ))}
+              </>
             )}
           </div>
 
@@ -316,6 +472,7 @@ const handleCheckout = async () => {
             </button>
           )}
         </div>
+
       </div>
 
       {/* List of Open Sales */}
@@ -325,30 +482,44 @@ const handleCheckout = async () => {
           <p className="text-gray-500">No open sales yet.</p>
         ) : (
           <div className="space-y-4">
-            {openSales.map((sale) => (
-              <div
-                key={sale._id}
-                className="border rounded-lg shadow p-4 flex justify-between items-center"
-              >
-                <div>
-                  <h3 className="font-semibold">Sale #{sale._id}</h3>
-                  <p>Total: ${sale.total}</p>
-                  <ul className="text-sm text-gray-600 list-disc pl-5">
-                    {sale.items.map((it, i) => (
-                      <li key={i}>
-                        {it.name} x{it.quantity}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-                <button
-                  onClick={() => deleteOpenSale(sale._id)}
-                  className="text-red-600 hover:text-red-800 text-sm"
+            {openSales.map((sale) => {
+              // ✅ Compute total dynamically
+              const total = sale.items.reduce(
+                (sum, it) => sum + Number(it.price) * (it.qty || 1),
+                0
+              );
+
+              return (
+                <div
+                  key={sale.id}
+                  className="border rounded-lg shadow p-4 flex justify-between items-center"
                 >
-                  Delete
-                </button>
-              </div>
-            ))}
+                  <div>
+                    <h3 className="font-semibold">
+                      Invoice #{sale.invoice_number}
+                    </h3>
+                    <p>Total: ${total.toFixed(2)}</p>
+
+                    <ul className="text-sm text-gray-600 list-disc pl-5">
+                      {sale.items.map((it, i) => (
+                        <li key={i}>
+                          {it.type === "service"
+                            ? `${it.service_name} x${it.qty || 1}`
+                            : `${it.item_name} x${it.qty || 1}`}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+
+                  <button
+                    onClick={() => deleteOpenSale(sale.id)}
+                    className="text-red-600 hover:text-red-800 text-sm"
+                  >
+                    Delete
+                  </button>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
