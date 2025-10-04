@@ -16,8 +16,29 @@ const Invoice = forwardRef(({ sale }, ref) => {
         padding: "8px",
       }}
     >
+      {/* 🧾 LOGO SECTION */}
+      <div
+        className="logo-container"
+        style={{
+          textAlign: "center",
+          marginBottom: "4px",
+        }}
+      >
+        <img
+          src="https://i.ibb.co/NFtDrgj/SPINCREDIBLE.png"
+          alt="SPINCREDIBLE Logo"
+          style={{
+            maxWidth: "60mm",   // ensures it fits within 80mm width
+            width: "100%",
+            height: "auto",
+            marginBottom: "6px",
+          }}
+        />
+      </div>
+
+      {/* 🏪 STORE DETAILS */}
       <div style={{ textAlign: "center", marginBottom: "8px" }}>
-        <h2 style={{ fontSize: "14px", margin: 0 }}>My Store</h2>
+        <h2 style={{ fontSize: "14px", margin: 0 }}>SPINCREDIBLE</h2>
         <p style={{ margin: 0 }}>123 Main St.</p>
         <p style={{ margin: 0 }}>Tel: 0912-345-6789</p>
       </div>
@@ -26,6 +47,7 @@ const Invoice = forwardRef(({ sale }, ref) => {
       <p>Date: {new Date().toLocaleString()}</p>
       <hr />
 
+      {/* 🧾 ITEMS */}
       {sale.items.map((it, idx) => (
         <div key={idx} style={{ marginBottom: "4px" }}>
           <div style={{ display: "flex", justifyContent: "space-between" }}>
@@ -36,12 +58,18 @@ const Invoice = forwardRef(({ sale }, ref) => {
             <span>{(it.price * (it.qty || 1)).toFixed(2)}</span>
           </div>
 
-          {/* Freebies */}
+          {/* 🎁 Freebies */}
           {it.freebies && it.freebies.length > 0 && (
             <div style={{ paddingLeft: "10px", fontSize: "11px" }}>
-              {it.freebies.map((f, fi) =>
+              {it.freebies.map((f, fIdx) =>
                 f.choices.map((c, ci) => (
-                  <div key={ci} style={{ display: "flex", justifyContent: "space-between" }}>
+                  <div
+                    key={`${fIdx}-${ci}`}
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                    }}
+                  >
                     <span>+ {c.item} x{c.qty}</span>
                     <span>FREE</span>
                   </div>
@@ -53,12 +81,20 @@ const Invoice = forwardRef(({ sale }, ref) => {
       ))}
 
       <hr />
-      <div style={{ display: "flex", justifyContent: "space-between", fontWeight: "bold" }}>
+      {/* 💰 TOTAL */}
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          fontWeight: "bold",
+        }}
+      >
         <span>Total</span>
         <span>{total.toFixed(2)}</span>
       </div>
       <hr />
 
+      {/* 🙏 FOOTER */}
       <p style={{ textAlign: "center", marginTop: "12px" }}>
         Thank you for your purchase!
       </p>
