@@ -1,11 +1,23 @@
-// components/Navbar.jsx
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link, NavLink, useNavigate } from "react-router-dom";
 
 const Navbar = () => {
   const navigate = useNavigate();
   const isAuthenticated = localStorage.getItem("authenticated") === "true";
   const [menuOpen, setMenuOpen] = useState(false);
+  const [darkMode, setDarkMode] = useState(
+    localStorage.getItem("theme") === "dark"
+  );
+
+  useEffect(() => {
+    if (darkMode) {
+      document.documentElement.classList.add("dark");
+      localStorage.setItem("theme", "dark");
+    } else {
+      document.documentElement.classList.remove("dark");
+      localStorage.setItem("theme", "light");
+    }
+  }, [darkMode]);
 
   const handleLogout = () => {
     localStorage.removeItem("authenticated");
@@ -17,16 +29,16 @@ const Navbar = () => {
     `block px-4 py-2 rounded-md font-medium transition-colors duration-200 ${
       isActive
         ? "bg-blue-600 text-white"
-        : "text-gray-700 hover:bg-blue-50 hover:text-blue-600"
+        : "text-gray-700 dark:text-gray-200 hover:bg-blue-50 dark:hover:bg-gray-700 hover:text-blue-600"
     }`;
 
   return (
-    <nav className="bg-white shadow-md sticky top-0 z-50">
+    <nav className="bg-white dark:bg-gray-900 shadow-md sticky top-0 z-50">
       <div className="max-w-6xl mx-auto px-6 py-3 flex justify-between items-center">
         {/* Logo */}
         <Link
           to="/"
-          className="text-lg sm:text-xl font-bold text-blue-600 tracking-wide"
+          className="text-lg sm:text-xl font-bold text-blue-600 dark:text-blue-400 tracking-wide"
         >
           TuldokBenta Dashboard
         </Link>
@@ -57,15 +69,22 @@ const Navbar = () => {
               Logout
             </button>
           )}
+
+          {/* Configure / Dark Mode Toggle */}
+          <button
+            onClick={() => setDarkMode(!darkMode)}
+            className="ml-2 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors duration-200"
+          >
+            {darkMode ? "Light Mode" : "Dark Mode"}
+          </button>
         </div>
 
         {/* Mobile Menu Button */}
         <button
-          className="md:hidden p-2 text-gray-700 hover:text-blue-600 focus:outline-none"
+          className="md:hidden p-2 text-gray-700 dark:text-gray-200 hover:text-blue-600 focus:outline-none"
           onClick={() => setMenuOpen(!menuOpen)}
           aria-label="Toggle menu"
         >
-          {/* Simple hamburger icon using spans */}
           <div className="space-y-1">
             <span
               className={`block h-0.5 w-6 bg-current transform transition duration-300 ${
@@ -88,7 +107,7 @@ const Navbar = () => {
 
       {/* Mobile Dropdown Menu */}
       {menuOpen && (
-        <div className="md:hidden border-t border-gray-200 bg-white">
+        <div className="md:hidden border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
           <div className="flex flex-col items-start p-4 space-y-2">
             <NavLink
               to="/open-sales"
@@ -137,6 +156,14 @@ const Navbar = () => {
                 Logout
               </button>
             )}
+
+            {/* Mobile Dark Mode Toggle */}
+            <button
+              onClick={() => setDarkMode(!darkMode)}
+              className="w-full text-left px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors duration-200"
+            >
+              {darkMode ? "Light Mode" : "Dark Mode"}
+            </button>
           </div>
         </div>
       )}

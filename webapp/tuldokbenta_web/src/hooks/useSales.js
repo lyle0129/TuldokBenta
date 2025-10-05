@@ -30,6 +30,29 @@ export const useSales = () => {
     }
   }, []);
 
+  // ✅ Date-filtered versions (for reports)
+  const fetchOpenSalesByDate = useCallback(async (lowdate, highdate) => {
+    try {
+      const res = await fetch(`${API_URL}/open-sales?lowdate=${lowdate}&highdate=${highdate}`);
+      const data = await res.json();
+      return data;
+    } catch (error) {
+      console.error("Error fetching open sales by date:", error);
+      return [];
+    }
+  }, []);
+
+  const fetchClosedSalesByDate = useCallback(async (lowdate, highdate) => {
+    try {
+      const res = await fetch(`${API_URL}/closed-sales?lowdate=${lowdate}&highdate=${highdate}`);
+      const data = await res.json();
+      return data;
+    } catch (error) {
+      console.error("Error fetching closed sales by date:", error);
+      return [];
+    }
+  }, []);
+
   const loadSales = useCallback(async () => {
     setIsLoading(true);
     try {
@@ -125,6 +148,8 @@ export const useSales = () => {
     loadSales,
     createOpenSale,
     updateOpenSale,   // ✅ added update here
+    fetchOpenSalesByDate,   // ✅ new
+    fetchClosedSalesByDate, // ✅ new
     deleteOpenSale,
     paySale,
     revertSale,

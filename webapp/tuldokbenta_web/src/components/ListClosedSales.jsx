@@ -1,5 +1,5 @@
 import React, { useState, useRef } from "react";
-import Invoice from "../components/Invoice"; // same component
+import Invoice from "../components/Invoice";
 
 const ListClosedSales = ({ closedSales, revertSale, deleteClosedSale, loadSales }) => {
   const [currentPage, setCurrentPage] = useState(1);
@@ -14,19 +14,14 @@ const ListClosedSales = ({ closedSales, revertSale, deleteClosedSale, loadSales 
   const totalPages = Math.ceil(closedSales.length / salesPerPage);
 
   const handlePageChange = (pageNumber) => {
-    if (pageNumber >= 1 && pageNumber <= totalPages) {
-      setCurrentPage(pageNumber);
-    }
+    if (pageNumber >= 1 && pageNumber <= totalPages) setCurrentPage(pageNumber);
   };
 
   const handlePrint = (sale) => {
     setInvoiceSale(sale);
-  
-    // Wait for React to render the Invoice first before printing
     setTimeout(() => {
       if (invoiceRef.current) {
         const printContents = invoiceRef.current.innerHTML;
-  
         const printWindow = document.createElement("iframe");
         printWindow.style.position = "fixed";
         printWindow.style.right = "0";
@@ -34,10 +29,9 @@ const ListClosedSales = ({ closedSales, revertSale, deleteClosedSale, loadSales 
         printWindow.style.width = "0";
         printWindow.style.height = "0";
         printWindow.style.border = "0";
-  
         document.body.appendChild(printWindow);
+
         const doc = printWindow.contentWindow.document;
-  
         doc.open();
         doc.write(`
           <html>
@@ -75,26 +69,23 @@ const ListClosedSales = ({ closedSales, revertSale, deleteClosedSale, loadSales 
                 }
               </style>
             </head>
-            <body>
-              ${printContents}
-            </body>
+            <body>${printContents}</body>
           </html>
         `);
         doc.close();
-  
         printWindow.contentWindow.focus();
         printWindow.contentWindow.print();
-  
-        // cleanup after print
         setTimeout(() => document.body.removeChild(printWindow), 1000);
       }
     }, 200);
   };
 
   return (
-    <div>
+    <div className="text-gray-800 dark:text-gray-100">
       {closedSales.length === 0 ? (
-        <p className="text-gray-500">No closed sales yet.</p>
+        <p className="text-gray-500 dark:text-gray-400 text-center italic">
+          No closed sales yet.
+        </p>
       ) : (
         <>
           <div className="space-y-4">
@@ -107,25 +98,26 @@ const ListClosedSales = ({ closedSales, revertSale, deleteClosedSale, loadSales 
               return (
                 <div
                   key={sale.id}
-                  className="border rounded-lg shadow p-4 flex justify-between items-center"
+                  className="border border-gray-200 dark:border-gray-700 rounded-lg shadow-sm p-5 flex justify-between items-start bg-white dark:bg-gray-800 hover:shadow-md transition"
                 >
                   <div>
-                    <h3 className="font-semibold">
+                    <h3 className="font-semibold text-lg text-gray-900 dark:text-gray-100">
                       Invoice #{sale.invoice_number}
                     </h3>
-                    {/* Add created date */}
-                    <p className="text-sm text-gray-500">
-                    Created at: {new Date(sale.created_at).toLocaleString()}
+                    <p className="text-sm text-gray-500 dark:text-gray-400">
+                      Created at: {new Date(sale.created_at).toLocaleString()}
                     </p>
-                    <p>Total: ${total.toFixed(2)}</p>
-                    <p className="text-sm text-gray-500">
+                    <p className="text-base font-medium mt-1">
+                      Total: ${total.toFixed(2)}
+                    </p>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">
                       Paid using: {sale.paid_using}
                     </p>
-                    <p className="text-sm text-gray-500">
+                    <p className="text-sm text-gray-500 dark:text-gray-400">
                       Paid at: {new Date(sale.paid_at).toLocaleString()}
                     </p>
 
-                    <ul className="text-sm text-gray-600 list-disc pl-5 mt-2">
+                    <ul className="text-sm text-gray-600 dark:text-gray-300 list-disc pl-5 mt-2">
                       {sale.items.map((it, i) => (
                         <li key={i}>
                           {it.type === "service"
@@ -136,26 +128,26 @@ const ListClosedSales = ({ closedSales, revertSale, deleteClosedSale, loadSales 
                     </ul>
                   </div>
 
-                  <div className="flex flex-col space-y-2">
+                  <div className="flex flex-col space-y-2 text-sm">
                     <button
                       onClick={() => revertSale(sale.id)}
-                      className="px-3 py-1 text-blue-600 hover:text-blue-800 text-sm"
+                      className="px-3 py-1 bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200 rounded-md border border-yellow-200 dark:border-yellow-700 hover:bg-yellow-200 dark:hover:bg-yellow-800 transition"
                     >
-                      Revert Sale
+                      Revert
                     </button>
 
                     <button
                       onClick={() => setDeletingSale(sale)}
-                      className="text-red-600 hover:text-red-800 text-sm"
+                      className="px-3 py-1 bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-200 rounded-md border border-red-200 dark:border-red-700 hover:bg-red-200 dark:hover:bg-red-800 transition"
                     >
                       Delete
                     </button>
 
                     <button
                       onClick={() => handlePrint(sale)}
-                      className="px-3 py-1 text-green-600 hover:text-green-800 text-sm"
+                      className="px-3 py-1 bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-200 rounded-md border border-purple-200 dark:border-purple-700 hover:bg-purple-200 dark:hover:bg-purple-800 transition"
                     >
-                      Print Receipt
+                      Print
                     </button>
                   </div>
                 </div>
@@ -164,11 +156,11 @@ const ListClosedSales = ({ closedSales, revertSale, deleteClosedSale, loadSales 
           </div>
 
           {/* Pagination */}
-          <div className="flex justify-center items-center mt-6 space-x-2">
+          <div className="flex justify-center items-center mt-8 space-x-2">
             <button
               onClick={() => handlePageChange(currentPage - 1)}
               disabled={currentPage === 1}
-              className="px-3 py-1 bg-gray-200 rounded disabled:opacity-50"
+              className="px-3 py-1 rounded-md bg-gray-200 dark:bg-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600 disabled:opacity-50"
             >
               Previous
             </button>
@@ -177,10 +169,10 @@ const ListClosedSales = ({ closedSales, revertSale, deleteClosedSale, loadSales 
               <button
                 key={i + 1}
                 onClick={() => handlePageChange(i + 1)}
-                className={`px-3 py-1 rounded ${
+                className={`px-3 py-1 rounded-md ${
                   currentPage === i + 1
                     ? "bg-blue-600 text-white"
-                    : "bg-gray-200 hover:bg-gray-300"
+                    : "bg-gray-200 dark:bg-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600"
                 }`}
               >
                 {i + 1}
@@ -190,7 +182,7 @@ const ListClosedSales = ({ closedSales, revertSale, deleteClosedSale, loadSales 
             <button
               onClick={() => handlePageChange(currentPage + 1)}
               disabled={currentPage === totalPages}
-              className="px-3 py-1 bg-gray-200 rounded disabled:opacity-50"
+              className="px-3 py-1 rounded-md bg-gray-200 dark:bg-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600 disabled:opacity-50"
             >
               Next
             </button>
@@ -198,22 +190,23 @@ const ListClosedSales = ({ closedSales, revertSale, deleteClosedSale, loadSales 
         </>
       )}
 
-      {/* DELETE CONFIRMATION MODAL */}
+      {/* Delete Confirmation Modal */}
       {deletingSale && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-lg w-full max-w-md p-6">
-            <h2 className="text-xl font-semibold mb-4 text-red-600">
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg w-full max-w-md p-6 border border-gray-200 dark:border-gray-700">
+            <h2 className="text-xl font-semibold mb-4 text-red-600 dark:text-red-400">
               Confirm Delete
             </h2>
-            <p className="text-gray-700 mb-6">
-              Are you sure you want to delete <strong>Invoice #{deletingSale.invoice_number}</strong>? 
+            <p className="text-gray-700 dark:text-gray-300 mb-6">
+              Are you sure you want to delete{" "}
+              <strong>Invoice #{deletingSale.invoice_number}</strong>?<br />
               This action cannot be undone.
             </p>
 
             <div className="flex justify-end space-x-3">
               <button
                 onClick={() => setDeletingSale(null)}
-                className="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300"
+                className="px-4 py-2 bg-gray-200 dark:bg-gray-700 rounded hover:bg-gray-300 dark:hover:bg-gray-600"
               >
                 Cancel
               </button>
@@ -232,7 +225,7 @@ const ListClosedSales = ({ closedSales, revertSale, deleteClosedSale, loadSales 
         </div>
       )}
 
-      {/* Hidden invoice for printing */}
+      {/* Hidden Invoice for Printing */}
       <div ref={invoiceRef} style={{ display: "none" }}>
         {invoiceSale && <Invoice sale={invoiceSale} />}
       </div>
