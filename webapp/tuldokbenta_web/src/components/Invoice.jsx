@@ -13,7 +13,7 @@ const Invoice = forwardRef(({ sale }, ref) => {
         width: "58mm", // ✅ thermal paper width
         fontFamily: "monospace",
         fontSize: "12px",
-        padding: "8px",
+        padding: "1px",
       }}
     >
       {/* 🧾 LOGO SECTION */}
@@ -28,7 +28,7 @@ const Invoice = forwardRef(({ sale }, ref) => {
           src="https://i.ibb.co/NFtDrgj/SPINCREDIBLE.png"
           alt="SPINCREDIBLE Logo"
           style={{
-            maxWidth: "60mm",   // ensures it fits within 80mm width
+            maxWidth: "50mm",   // ensures it fits within 80mm width
             width: "100%",
             height: "auto",
             marginBottom: "6px",
