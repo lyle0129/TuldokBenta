@@ -33,8 +33,38 @@ export default function Reporting() {
     });
   };
 
+  // Filter closed sales by payment date
+  const filterClosedSalesByPaidDate = (sales) => {
+    if (!lowDate || !highDate) return sales;
+
+    const start = new Date(lowDate);
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(highDate);
+    end.setHours(23, 59, 59, 999);
+
+    return sales.filter((s) => {
+      if (!s.paid_at) return false; // skip unpaid sales
+      const paid = new Date(s.paid_at);
+      return paid >= start && paid <= end;
+    });
+  };
+
   const filteredOpenSales = useMemo(() => filterByDate(openSales), [openSales, lowDate, highDate]);
   const filteredClosedSales = useMemo(() => filterByDate(closedSales), [closedSales, lowDate, highDate]);
+  const filteredClosedSalesToday = useMemo(
+    () => filterClosedSalesByPaidDate(closedSales),
+    [closedSales, lowDate, highDate]
+  );
+  // then i want to have 2 array where the filtered closed sales is removed from filtered closedsalestoday, that would leave us with filtered closed sales today from previous days
+
+  // Closed sales from previous days (exclude today's closed sales)
+  const filteredClosedSalesPrevious = useMemo(
+    () =>
+      filteredClosedSalesToday.filter(
+        (sale) => !filteredClosedSales.some((s) => s.id === sale.id)
+      ),
+    [filteredClosedSales, filteredClosedSalesToday]
+  );
 
   const openTotal = useMemo(() =>
     filteredOpenSales.reduce((sum, sale) => sum + sale.items.reduce((a, i) => a + i.price * (i.qty || 1), 0), 0),
@@ -125,6 +155,28 @@ export default function Reporting() {
               formatCurrency={formatCurrency}
             />
           </div>
+
+          {/* Closed sales today from Previous days  */}
+          <div className="mt-3 grid grid-cols-1">
+            <h2 className="text-xl font-bold text-center text-gray-900 dark:text-gray-100 mb-4">Previous Days</h2>
+          <SalesList
+            title="Closed Sales - Previous Days"
+            sales={filteredClosedSalesPrevious}
+            currentPage={closedPage}
+            totalPages={totalClosedPages}
+            onPrevPage={() => setClosedPage(p => p - 1)}
+            onNextPage={() => setClosedPage(p => p + 1)}
+            formatDate={formatDate}
+            formatCurrency={formatCurrency}
+          />
+          <ClosedSalesTotal
+            closedSales={filteredClosedSalesPrevious}
+            formatCurrency={formatCurrency}
+          />
+          </div>
+
+          
+
         </>
       )}
     </div>
