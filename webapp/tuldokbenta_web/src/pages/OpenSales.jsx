@@ -279,6 +279,14 @@ const handleCheckout = async () => {
                 <h3 className="font-semibold">{item.item_name}</h3>
                 <p className="text-sm text-gray-500">{item.item_classification}</p>
                 <p className="mt-2 font-bold">${item.price}</p>
+                <p
+                  className={`text-sm ${
+                    item.stock === 0 ? "text-red-600 font-semibold" : "text-gray-600"
+                  }`}
+                >
+                  Stock: {item.stock}
+                </p>
+
                 <button
                   onClick={() => addInventoryToCart(item)}
                   className="mt-4 bg-blue-600 text-white py-2 rounded-md hover:bg-blue-700"
@@ -495,6 +503,7 @@ const handleCheckout = async () => {
         paySale={paySale}
         loadSales={loadSales}
         inventory={inventory}
+        services={services} 
       />
 
     </div>

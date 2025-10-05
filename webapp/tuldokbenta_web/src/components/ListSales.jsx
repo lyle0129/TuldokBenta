@@ -8,6 +8,7 @@ const ListSales = ({
   paySale,
   loadSales,
   inventory,
+  services, 
 }) => {
   const [editingSale, setEditingSale] = useState(null);
   const [showModal, setShowModal] = useState(false);
@@ -15,6 +16,14 @@ const ListSales = ({
   const [paymentMethod, setPaymentMethod] = useState("");
   const [invoiceSale, setInvoiceSale] = useState(null);
   const [deletingSale, setDeletingSale] = useState(null);
+
+  const [showAddItemModal, setShowAddItemModal] = useState(false);
+  const [selectedSale, setSelectedSale] = useState(null);
+  const [selectedTab, setSelectedTab] = useState("inventory"); 
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [successMessage, setSuccessMessage] = useState("");
+
+
 
     // 🧭 Pagination states
     const [currentPage, setCurrentPage] = useState(1);
@@ -104,6 +113,33 @@ const ListSales = ({
         setTimeout(() => document.body.removeChild(printWindow), 1000);
       }
     }, 200);
+  };
+
+  const handleAddItemToSale = async (sale, item, type) => {
+    const newEntry =
+      type === "inventory"
+        ? { type: "item", item_name: item.item_name, qty: 1, price: item.price }
+        : {
+            type: "service",
+            service_name: item.service_name,
+            qty: 1,
+            price: item.price,
+          };
+  
+    const updatedItems = [...sale.items, newEntry];
+    await updateOpenSale(sale.id, { ...sale, items: updatedItems });
+    await loadSales();
+  
+    // ✅ Show success message
+    setSuccessMessage(
+      type === "inventory"
+        ? `${item.item_name} added successfully!`
+        : `${item.service_name} added successfully!`
+    );
+    setShowSuccessModal(true);
+  
+    // ✅ Auto close the success modal after 2 seconds
+    setTimeout(() => setShowSuccessModal(false), 2000);
   };
   
   
@@ -198,6 +234,16 @@ const ListSales = ({
                       className="text-blue-600 hover:text-blue-800 text-sm"
                     >
                       Edit
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        setSelectedSale(sale);
+                        setShowAddItemModal(true);
+                      }}
+                      className="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600"
+                    >
+                      + Add Item
                     </button>
 
                     <button
@@ -500,6 +546,101 @@ const ListSales = ({
         </div>
       )}
 
+      {/* Edit Add Item Modal */}
+      {showAddItemModal && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-lg p-6 w-11/12 max-w-3xl">
+            <h2 className="text-xl font-bold mb-4">Add Items or Services</h2>
+
+            {/* Tabs */}
+            <div className="flex mb-4">
+              <button
+                className={`flex-1 py-2 rounded-l-md ${
+                  selectedTab === "inventory" ? "bg-blue-600 text-white" : "bg-gray-200"
+                }`}
+                onClick={() => setSelectedTab("inventory")}
+              >
+                Inventory
+              </button>
+              <button
+                className={`flex-1 py-2 rounded-r-md ${
+                  selectedTab === "service" ? "bg-blue-600 text-white" : "bg-gray-200"
+                }`}
+                onClick={() => setSelectedTab("service")}
+              >
+                Services
+              </button>
+            </div>
+
+            {/* Inventory or Service List */}
+            <div className="grid grid-cols-2 gap-4 max-h-96 overflow-y-auto">
+              {selectedTab === "inventory"
+                ? inventory.map((item) => (
+                    <div
+                      key={item.id}
+                      className="border rounded-lg p-4 shadow flex flex-col justify-between"
+                    >
+                      <h3 className="font-semibold">{item.item_name}</h3>
+                      <p className="text-sm text-gray-500">{item.item_classification}</p>
+                      <p className="font-bold mt-2">${item.price}</p>
+                      <p
+                        className={`text-sm ${
+                          item.stock === 0 ? "text-red-600 font-semibold" : "text-gray-600"
+                        }`}
+                      >
+                        Stock: {item.stock}
+                      </p>
+
+                      <button
+                        className="mt-3 bg-blue-600 text-white py-1 rounded hover:bg-blue-700"
+                        onClick={() => handleAddItemToSale(selectedSale, item, "inventory")}
+                      >
+                        Add
+                      </button>
+                    </div>
+                  ))
+                : services.map((service) => (
+                    <div
+                      key={service.id}
+                      className="border rounded-lg p-4 shadow flex flex-col justify-between"
+                    >
+                      <h3 className="font-semibold">{service.service_name}</h3>
+                      <p className="font-bold mt-2">${service.price}</p>
+                      {service.freebies?.length > 0 && (
+                        <p className="text-sm text-green-600 mt-1">
+                          Includes: {service.freebies.join(", ")}
+                        </p>
+                      )}
+                      <button
+                        className="mt-3 bg-purple-600 text-white py-1 rounded hover:bg-purple-700"
+                        onClick={() => handleAddItemToSale(selectedSale, service, "service")}
+                      >
+                        Add
+                      </button>
+                    </div>
+                  ))}
+            </div>
+
+            <div className="mt-6 flex justify-end space-x-2">
+              <button
+                onClick={() => setShowAddItemModal(false)}
+                className="px-4 py-2 bg-gray-300 rounded hover:bg-gray-400"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* ✅ SUCCESS MODAL */}
+      {showSuccessModal && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-lg p-6 w-full max-w-sm text-center">
+            <h2 className="text-lg font-semibold text-green-600 mb-2">Success!</h2>
+            <p className="text-gray-700">{successMessage}</p>
+          </div>
+        </div>
+      )}
 
       {/* HIDDEN PRINTABLE INVOICE */}
       <div ref={invoiceRef} style={{ display: "none" }}>

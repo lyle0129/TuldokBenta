@@ -5,6 +5,7 @@ import Services from "./pages/Services";
 import OpenSales from "./pages/OpenSales";
 import ClosedSales from "./pages/ClosedSales";
 import Reporting from "./pages/Reporting";
+import ProtectedRoute from "./components/ProtectedRoute";
 
 function App() {
   return (
@@ -12,8 +13,22 @@ function App() {
       <Navbar />
       <Routes>
         <Route path="/" element={<Navigate to="/open-sales" />} />
-        <Route path="/inventory" element={<Inventory />} />
-        <Route path="/services" element={<Services />} />
+        <Route
+          path="/inventory"
+          element={
+            <ProtectedRoute>
+              <Inventory />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/services"
+          element={
+            <ProtectedRoute>
+              <Services />
+            </ProtectedRoute>
+          }
+        />
         <Route path="/open-sales" element={<OpenSales />} />
         <Route path="/closed-sales" element={<ClosedSales />} />
         <Route path="/reporting" element={<Reporting />} />
