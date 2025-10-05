@@ -10,7 +10,7 @@ const Invoice = forwardRef(({ sale }, ref) => {
     <div
       ref={ref}
       style={{
-        width: "80mm", // ✅ thermal paper width
+        width: "58mm", // ✅ thermal paper width
         fontFamily: "monospace",
         fontSize: "12px",
         padding: "8px",
@@ -39,8 +39,8 @@ const Invoice = forwardRef(({ sale }, ref) => {
       {/* 🏪 STORE DETAILS */}
       <div style={{ textAlign: "center", marginBottom: "8px" }}>
         <h2 style={{ fontSize: "14px", margin: 0 }}>SPINCREDIBLE</h2>
-        <p style={{ margin: 0 }}>123 Main St.</p>
-        <p style={{ margin: 0 }}>Tel: 0912-345-6789</p>
+        <p style={{ margin: 0 }}>Rizal Street Ext</p>
+        <p style={{ margin: 0 }}>Mo: 0962-683-7430</p>
       </div>
 
       <p>Invoice #: {sale.invoice_number}</p>
