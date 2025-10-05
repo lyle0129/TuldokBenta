@@ -1,9 +1,10 @@
 import React, { useState, useRef } from "react";
 import Invoice from "../components/Invoice"; // same component
 
-const ListClosedSales = ({ closedSales, revertSale, deleteClosedSale }) => {
+const ListClosedSales = ({ closedSales, revertSale, deleteClosedSale, loadSales }) => {
   const [currentPage, setCurrentPage] = useState(1);
   const [invoiceSale, setInvoiceSale] = useState(null);
+  const [deletingSale, setDeletingSale] = useState(null);
   const salesPerPage = 10;
   const invoiceRef = useRef();
 
@@ -144,8 +145,8 @@ const ListClosedSales = ({ closedSales, revertSale, deleteClosedSale }) => {
                     </button>
 
                     <button
-                      onClick={() => deleteClosedSale(sale.id)}
-                      className="px-3 py-1 text-red-600 hover:text-red-800 text-sm"
+                      onClick={() => setDeletingSale(sale)}
+                      className="text-red-600 hover:text-red-800 text-sm"
                     >
                       Delete
                     </button>
@@ -195,6 +196,40 @@ const ListClosedSales = ({ closedSales, revertSale, deleteClosedSale }) => {
             </button>
           </div>
         </>
+      )}
+
+      {/* DELETE CONFIRMATION MODAL */}
+      {deletingSale && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-lg w-full max-w-md p-6">
+            <h2 className="text-xl font-semibold mb-4 text-red-600">
+              Confirm Delete
+            </h2>
+            <p className="text-gray-700 mb-6">
+              Are you sure you want to delete <strong>Invoice #{deletingSale.invoice_number}</strong>? 
+              This action cannot be undone.
+            </p>
+
+            <div className="flex justify-end space-x-3">
+              <button
+                onClick={() => setDeletingSale(null)}
+                className="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  await deleteClosedSale(deletingSale.id);
+                  setDeletingSale(null);
+                  loadSales();
+                }}
+                className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
+              >
+                Yes, Delete
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Hidden invoice for printing */}

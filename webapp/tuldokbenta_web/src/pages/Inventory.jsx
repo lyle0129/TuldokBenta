@@ -1,6 +1,8 @@
 // pages/Inventory.js
 import { useEffect, useState } from "react";
 import { useInventory } from "../hooks/useInventory";
+import Select from "react-select";
+
 
 const Inventory = () => {
   const {
@@ -19,7 +21,15 @@ const Inventory = () => {
     price: 0,
   });
 
+  const uniqueClassifications = [...new Set(inventory.map(i => i.item_classification))];
+  const classificationOptions = uniqueClassifications.map(cls => ({
+    value: cls,
+    label: cls,
+  }));
+  
+
   const [editingItem, setEditingItem] = useState(null);
+  const [deletingItem, setDeletingItem] = useState(null);
 
   useEffect(() => {
     loadInventory();
@@ -35,6 +45,12 @@ const Inventory = () => {
     if (!editingItem) return;
     await updateInventoryItem(editingItem.id, editingItem);
     setEditingItem(null);
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!deletingItem) return;
+    await deleteInventoryItem(deletingItem.id);
+    setDeletingItem(null);
   };
 
   return (
@@ -57,16 +73,24 @@ const Inventory = () => {
 
         <div className="flex flex-col">
           <label className="text-sm text-gray-600 mb-1">Classification</label>
-          <input
-            type="text"
-            value={newItem.item_classification}
-            onChange={(e) =>
-              setNewItem({
-                ...newItem,
-                item_classification: e.target.value,
-              })
+          <Select
+            options={classificationOptions}
+            value={
+              newItem.item_classification
+                ? { value: newItem.item_classification, label: newItem.item_classification }
+                : null
             }
-            className="border rounded-md px-3 py-2 focus:ring-2 focus:ring-blue-400"
+            onChange={(selected) =>
+              setNewItem({ ...newItem, item_classification: selected ? selected.value : "" })
+            }
+            onInputChange={(inputValue) =>
+              setNewItem({ ...newItem, item_classification: inputValue })
+            }
+            placeholder="Classification"
+            isClearable
+            isSearchable
+            className="react-select-container"
+            classNamePrefix="react-select"
           />
         </div>
 
@@ -134,7 +158,7 @@ const Inventory = () => {
                       Edit
                     </button>
                     <button
-                      onClick={() => deleteInventoryItem(item.id)}
+                      onClick={() => setDeletingItem(item)} // 🆕 open delete modal
                       className="bg-red-500 text-white px-3 py-1 rounded hover:bg-red-600"
                     >
                       Delete
@@ -176,16 +200,27 @@ const Inventory = () => {
               </div>
               <div>
                 <label className="text-sm text-gray-600">Classification</label>
-                <input
-                  type="text"
-                  value={editingItem.item_classification}
-                  onChange={(e) =>
+                <Select
+                  options={classificationOptions}
+                  value={
+                    editingItem?.item_classification
+                      ? { value: editingItem.item_classification, label: editingItem.item_classification }
+                      : null
+                  }
+                  onChange={(selected) =>
                     setEditingItem({
                       ...editingItem,
-                      item_classification: e.target.value,
+                      item_classification: selected ? selected.value : "",
                     })
                   }
-                  className="w-full border px-3 py-2 rounded-md focus:ring-2 focus:ring-blue-400"
+                  onInputChange={(inputValue) =>
+                    setEditingItem({ ...editingItem, item_classification: inputValue })
+                  }
+                  placeholder="Type or select a classification"
+                  isClearable
+                  isSearchable
+                  className="react-select-container"
+                  classNamePrefix="react-select"
                 />
               </div>
               <div>
@@ -223,6 +258,32 @@ const Inventory = () => {
                 className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
               >
                 Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* 🗑️ Delete Confirmation Modal */}
+      {deletingItem && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-sm">
+            <h2 className="text-xl font-semibold mb-4 text-red-600">Confirm Deletion</h2>
+            <p className="mb-6 text-gray-700">
+              Are you sure you want to delete{" "}
+              <strong>{deletingItem.item_name}</strong>? This action cannot be undone.
+            </p>
+            <div className="flex justify-end space-x-3">
+              <button
+                onClick={() => setDeletingItem(null)}
+                className="px-4 py-2 bg-gray-300 rounded-md hover:bg-gray-400"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDeleteConfirm}
+                className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700"
+              >
+                Delete
               </button>
             </div>
           </div>

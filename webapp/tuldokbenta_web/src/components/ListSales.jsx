@@ -14,6 +14,7 @@ const ListSales = ({
   const [payingSale, setPayingSale] = useState(null);
   const [paymentMethod, setPaymentMethod] = useState("");
   const [invoiceSale, setInvoiceSale] = useState(null);
+  const [deletingSale, setDeletingSale] = useState(null);
 
     // 🧭 Pagination states
     const [currentPage, setCurrentPage] = useState(1);
@@ -200,7 +201,7 @@ const ListSales = ({
                     </button>
 
                     <button
-                      onClick={() => deleteOpenSale(sale.id)}
+                      onClick={() => setDeletingSale(sale)}
                       className="text-red-600 hover:text-red-800 text-sm"
                     >
                       Delete
@@ -263,7 +264,7 @@ const ListSales = ({
 
       {/* EDIT MODAL */}
       {showModal && editingSale && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-lg w-full max-w-2xl p-6">
             <h2 className="text-xl font-semibold mb-4">
               Edit Invoice #{editingSale.invoice_number}
@@ -418,7 +419,7 @@ const ListSales = ({
 
       {/* PAY MODAL */}
       {payingSale && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-lg w-full max-w-md p-6">
             <h2 className="text-xl font-semibold mb-4">
               Pay Invoice #{payingSale.invoice_number}
@@ -465,6 +466,40 @@ const ListSales = ({
           </div>
         </div>
       )}
+      {/* DELETE CONFIRMATION MODAL */}
+      {deletingSale && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-lg w-full max-w-md p-6">
+            <h2 className="text-xl font-semibold mb-4 text-red-600">
+              Confirm Delete
+            </h2>
+            <p className="text-gray-700 mb-6">
+              Are you sure you want to delete <strong>Invoice #{deletingSale.invoice_number}</strong>? 
+              This action cannot be undone.
+            </p>
+
+            <div className="flex justify-end space-x-3">
+              <button
+                onClick={() => setDeletingSale(null)}
+                className="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  await deleteOpenSale(deletingSale.id);
+                  setDeletingSale(null);
+                  loadSales();
+                }}
+                className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
+              >
+                Yes, Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
 
       {/* HIDDEN PRINTABLE INVOICE */}
       <div ref={invoiceRef} style={{ display: "none" }}>
