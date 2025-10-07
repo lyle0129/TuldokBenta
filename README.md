@@ -4,7 +4,7 @@
 
 It is built as a full-stack web application, responsive for both desktop and mobile devices.
 
-🔗 **Live Demo:** [tuldokbenta.vercel.app](https://tuldokbenta-demo.vercel.app)
+🔗 **Live Demo:** [tuldokbenta](https://tuldokbenta-demo.vercel.app)
 
 ---
 
