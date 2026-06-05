@@ -196,12 +196,13 @@ const ListClosedSales = ({ closedSales, revertSale, deleteClosedSale, loadSales 
                       Revert
                     </button>
 
-                    <button
+                      {/* NOTE: Removing the delete button on the closed sales list because I havent handled reverting the stocks if deleted from here */}
+                    {/* <button
                       onClick={() => setDeletingSale(sale)}
                       className="px-3 py-1 bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-200 rounded-md border border-red-200 dark:border-red-700 hover:bg-red-200 dark:hover:bg-red-800 transition"
-                    >
+                    > 
                       Delete
-                    </button>
+                    </button> */} 
 
                     <button
                       onClick={() => handlePrint(sale)}
@@ -215,38 +216,56 @@ const ListClosedSales = ({ closedSales, revertSale, deleteClosedSale, loadSales 
             })}
           </div>
 
-          {/* Pagination */}
-          <div className="flex justify-center items-center mt-8 space-x-2">
+          {/* 📱 Responsive Pagination */}
+          <div className="flex flex-col sm:flex-row justify-center items-center mt-8 gap-3 sm:gap-4 w-full">
+            {/* Previous Button */}
             <button
               onClick={() => handlePageChange(currentPage - 1)}
               disabled={currentPage === 1}
-              className="px-3 py-1 rounded-md bg-gray-200 dark:bg-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600 disabled:opacity-50"
+              className="px-3 py-1.5 rounded-md text-sm font-medium 
+                        bg-gray-200 dark:bg-gray-700 dark:text-gray-300 
+                        hover:bg-gray-300 dark:hover:bg-gray-600 
+                        disabled:opacity-50 disabled:cursor-not-allowed 
+                        transition-colors min-w-[80px]"
             >
               Previous
             </button>
 
-            {Array.from({ length: totalPages }, (_, i) => (
-              <button
-                key={i + 1}
-                onClick={() => handlePageChange(i + 1)}
-                className={`px-3 py-1 rounded-md ${
-                  currentPage === i + 1
-                    ? "bg-blue-600 text-white"
-                    : "bg-gray-200 dark:bg-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600"
-                }`}
-              >
-                {i + 1}
-              </button>
-            ))}
+            {/* Page Numbers (Scrollable on small screens) */}
+            <div
+              className="flex overflow-x-auto sm:overflow-visible scrollbar-hide gap-2 
+                        px-2 py-1 rounded-md bg-gray-100 dark:bg-gray-800 sm:bg-transparent sm:dark:bg-transparent 
+                        max-w-full sm:max-w-none"
+            >
+              {Array.from({ length: totalPages }, (_, i) => (
+                <button
+                  key={i + 1}
+                  onClick={() => handlePageChange(i + 1)}
+                  className={`flex-shrink-0 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                    currentPage === i + 1
+                      ? "bg-blue-600 text-white dark:bg-blue-500"
+                      : "bg-gray-200 dark:bg-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600"
+                  }`}
+                >
+                  {i + 1}
+                </button>
+              ))}
+            </div>
 
+            {/* Next Button */}
             <button
               onClick={() => handlePageChange(currentPage + 1)}
               disabled={currentPage === totalPages}
-              className="px-3 py-1 rounded-md bg-gray-200 dark:bg-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600 disabled:opacity-50"
+              className="px-3 py-1.5 rounded-md text-sm font-medium 
+                        bg-gray-200 dark:bg-gray-700 dark:text-gray-300 
+                        hover:bg-gray-300 dark:hover:bg-gray-600 
+                        disabled:opacity-50 disabled:cursor-not-allowed 
+                        transition-colors min-w-[80px]"
             >
               Next
             </button>
           </div>
+
         </>
       )}
 

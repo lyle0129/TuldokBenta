@@ -3,7 +3,7 @@ import { useSales } from "../hooks/useSales";
 import ListClosedSales from "../components/ListClosedSales";
 
 const ClosedSales = () => {
-  const { closedSales, loadSales, revertSale, deleteClosedSale, isLoading } = useSales();
+  const { closedSalesbyDate, loadSales, revertSale, deleteClosedSale, isLoading } = useSales();
 
   useEffect(() => {
     loadSales();
@@ -26,7 +26,7 @@ const ClosedSales = () => {
 
       <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-sm p-6 transition-colors">
         <ListClosedSales
-          closedSales={closedSales}
+          closedSales={closedSalesbyDate}
           revertSale={revertSale}
           deleteClosedSale={deleteClosedSale}
           loadSales={loadSales}

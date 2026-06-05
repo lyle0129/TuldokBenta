@@ -2,11 +2,12 @@
 import { useState, useCallback } from "react";
 
 const API_URL = "http://localhost:5001/api"; // change for production
-// const API_URL = "https://backend-cashly.onrender.com/api"; 
+// const API_URL = "https://pos-backend-ygit.onrender.com/api"; 
 
 export const useSales = () => {
   const [openSales, setOpenSales] = useState([]);
   const [closedSales, setClosedSales] = useState([]);
+  const [closedSalesbyDate, setClosedSalesbyDate] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
 
   // ---------- FETCHERS ---------- //
@@ -44,25 +45,49 @@ export const useSales = () => {
 
   const fetchClosedSalesByDate = useCallback(async (lowdate, highdate) => {
     try {
-      const res = await fetch(`${API_URL}/closed-sales?lowdate=${lowdate}&highdate=${highdate}`);
+      const res = await fetch(
+        `${API_URL}/closed-sales?lowdate=${lowdate}&highdate=${highdate}`
+      );
       const data = await res.json();
-      return data;
+      setClosedSalesbyDate(data); // ✅ update the table with filtered data
     } catch (error) {
       console.error("Error fetching closed sales by date:", error);
-      return [];
     }
   }, []);
+  
 
   const loadSales = useCallback(async () => {
     setIsLoading(true);
     try {
-      await Promise.all([fetchOpenSales(), fetchClosedSales()]);
+      const now = new Date();
+
+    // Convert to local YYYY-MM-DD
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, "0");
+    const day = String(now.getDate()).padStart(2, "0");
+    const today = `${year}-${month}-${day}`;
+
+    // Build local time range for today
+    const lowdateLocal = new Date(`${today}T00:00:00`);
+    const highdateLocal = new Date(`${today}T23:59:59`);
+
+    // ✅ Convert to "YYYY-MM-DD HH:MM:SS" (already in UTC)
+    const formatDate = (d) => d.toISOString().slice(0, 19).replace("T", " ");
+
+      console.log(lowdateLocal)
+      console.log(highdateLocal)
+  
+      await Promise.all([
+        fetchOpenSales(),
+        fetchClosedSales(),
+        fetchClosedSalesByDate(formatDate(lowdateLocal), formatDate(highdateLocal)), // ✅ works now
+      ]);
     } catch (error) {
       console.error("Error loading sales:", error);
     } finally {
       setIsLoading(false);
     }
-  }, [fetchOpenSales, fetchClosedSales]);
+  }, [fetchOpenSales, fetchClosedSales, fetchClosedSalesByDate]);  
 
   // ---------- MUTATIONS ---------- //
   const createOpenSale = async (sale) => {
@@ -144,6 +169,7 @@ export const useSales = () => {
   return {
     openSales,
     closedSales,
+    closedSalesbyDate,
     isLoading,
     loadSales,
     createOpenSale,

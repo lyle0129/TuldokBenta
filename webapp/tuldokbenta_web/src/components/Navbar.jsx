@@ -40,7 +40,7 @@ const Navbar = () => {
           to="/"
           className="text-lg sm:text-xl font-bold text-blue-600 dark:text-blue-400 tracking-wide"
         >
-          TuldokBenta Dashboard
+          MultiPOS 
         </Link>
 
         {/* Desktop Navigation */}
@@ -48,6 +48,12 @@ const Navbar = () => {
           <NavLink to="/open-sales" className={linkClasses}>
             Open Sales
           </NavLink>
+
+          {/* ✅ New Offline Sales link */}
+          <NavLink to="/open-sales-offline" className={linkClasses}>
+            Offline Sales
+          </NavLink>
+
           <NavLink to="/closed-sales" className={linkClasses}>
             Closed Sales
           </NavLink>
@@ -70,7 +76,7 @@ const Navbar = () => {
             </button>
           )}
 
-          {/* Configure / Dark Mode Toggle */}
+          {/* Dark Mode Toggle */}
           <button
             onClick={() => setDarkMode(!darkMode)}
             className="ml-2 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors duration-200"
@@ -116,6 +122,16 @@ const Navbar = () => {
             >
               Open Sales
             </NavLink>
+
+            {/* ✅ Mobile Offline Sales link */}
+            <NavLink
+              to="/open-sales-offline"
+              className={linkClasses}
+              onClick={() => setMenuOpen(false)}
+            >
+              Offline Sales
+            </NavLink>
+
             <NavLink
               to="/closed-sales"
               className={linkClasses}

@@ -351,7 +351,7 @@ const ListSales = ({
 
 
           {/* 🧭 Pagination controls */}
-          <div className="flex flex-wrap justify-center items-center mt-6 gap-2">
+          <div className="flex flex-col sm:flex-row justify-center items-center mt-6 gap-3 sm:gap-4">
             {/* Previous Button */}
             <button
               onClick={() => handlePageChange(currentPage - 1)}
@@ -361,26 +361,32 @@ const ListSales = ({
                         text-gray-700 dark:text-gray-200 
                         hover:bg-gray-300 dark:hover:bg-gray-600 
                         disabled:opacity-50 disabled:cursor-not-allowed
-                        transition-colors"
+                        transition-colors min-w-[80px]"
             >
               Previous
             </button>
 
-            {/* Page Numbers */}
-            {Array.from({ length: totalPages }, (_, i) => (
-              <button
-                key={i + 1}
-                onClick={() => handlePageChange(i + 1)}
-                className={`px-3 py-2 text-sm font-semibold rounded-lg transition-colors 
-                  ${
-                    currentPage === i + 1
-                      ? "bg-blue-600 text-white dark:bg-blue-500"
-                      : "bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-300 dark:hover:bg-gray-600"
-                  }`}
-              >
-                {i + 1}
-              </button>
-            ))}
+            {/* Page Numbers (Scrollable on Mobile) */}
+            <div
+              className="flex overflow-x-auto sm:overflow-visible max-w-full sm:max-w-none 
+                        scrollbar-hide gap-2 px-2 py-1 rounded-lg 
+                        bg-gray-100 dark:bg-gray-800 sm:bg-transparent sm:dark:bg-transparent"
+            >
+              {Array.from({ length: totalPages }, (_, i) => (
+                <button
+                  key={i + 1}
+                  onClick={() => handlePageChange(i + 1)}
+                  className={`px-3 py-2 text-sm font-semibold rounded-lg flex-shrink-0 transition-colors
+                    ${
+                      currentPage === i + 1
+                        ? "bg-blue-600 text-white dark:bg-blue-500"
+                        : "bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-300 dark:hover:bg-gray-600"
+                    }`}
+                >
+                  {i + 1}
+                </button>
+              ))}
+            </div>
 
             {/* Next Button */}
             <button
@@ -391,11 +397,12 @@ const ListSales = ({
                         text-gray-700 dark:text-gray-200 
                         hover:bg-gray-300 dark:hover:bg-gray-600 
                         disabled:opacity-50 disabled:cursor-not-allowed
-                        transition-colors"
+                        transition-colors min-w-[80px]"
             >
               Next
             </button>
           </div>
+
         </>
       )}
 
@@ -618,35 +625,53 @@ const ListSales = ({
             </h2>
 
             <p className="text-gray-700 dark:text-gray-300 mb-6 leading-relaxed">
-              Are you sure you want to delete{" "}
+              To confirm deletion of{" "}
               <strong className="text-gray-900 dark:text-white">
                 Invoice #{deletingSale.invoice_number}
-              </strong>
-              ? This action <span className="font-semibold text-red-500">cannot be undone</span>.
+              </strong>, please type{" "}
+              <span className="font-semibold text-red-600">delete</span> below.
             </p>
+
+            <input
+              type="text"
+              placeholder="Type 'delete' to confirm"
+              value={deletingSale.confirmText || ""}
+              onChange={(e) =>
+                setDeletingSale((prev) => ({ ...prev, confirmText: e.target.value }))
+              }
+              className="w-full mb-6 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 
+                        text-gray-800 dark:text-gray-200 rounded-md px-3 py-2 focus:ring-2 focus:ring-red-500 outline-none"
+            />
 
             <div className="flex justify-end gap-3">
               <button
                 onClick={() => setDeletingSale(null)}
-                className="px-4 py-2 rounded-md bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
+                className="px-4 py-2 rounded-md bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 
+                          hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
               >
                 Cancel
               </button>
 
               <button
+                disabled={deletingSale.confirmText?.toLowerCase() !== "delete"}
                 onClick={async () => {
                   await deleteOpenSale(deletingSale.id);
                   setDeletingSale(null);
                   loadSales();
                 }}
-                className="px-4 py-2 rounded-md bg-red-600 hover:bg-red-700 text-white font-medium transition-colors"
+                className={`px-4 py-2 rounded-md font-medium transition-colors ${
+                  deletingSale.confirmText?.toLowerCase() === "delete"
+                    ? "bg-red-600 hover:bg-red-700 text-white"
+                    : "bg-red-300 dark:bg-red-800 text-gray-100 cursor-not-allowed"
+                }`}
               >
-                Yes, Delete
+                Delete Permanently
               </button>
             </div>
           </div>
         </div>
       )}
+
 
       {/* EDIT ADD ITEM MODAL */}
       {showAddItemModal && (

@@ -2,15 +2,18 @@ import express from "express";
 import dotenv from "dotenv";
 import { sql } from "./config/db.js";
 import cors from "cors";
+import job from "./config/cron.js";
 
 dotenv.config();
 const app = express();
+
+if (process.env.NODE_ENV === "production") job.start();
 
 app.use(
   cors({
     origin: [
       "http://localhost:5173", // local dev
-      "https://your-frontend.vercel.app", // replace with your frontend
+      "https://pos-spincredible.vercel.app", // replace with your frontend
     ],
     methods: ["GET", "POST", "PUT", "DELETE"],
     credentials: true,
