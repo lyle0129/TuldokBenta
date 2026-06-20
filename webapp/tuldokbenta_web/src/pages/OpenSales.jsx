@@ -3,6 +3,7 @@ import { useState, useEffect } from "react";
 import { useInventory } from "../hooks/useInventory";
 import { useServices } from "../hooks/useServices";
 import { useSales } from "../hooks/useSales";
+import { useCart } from "../hooks/useCart";
 import Invoice from "../components/Invoice";
 import ListSales from "../components/ListSales";
 
@@ -19,8 +20,20 @@ const OpenSales = () => {
     paySale,
   } = useSales();
 
-  const [cart, setCart] = useState([]);
   const [nextInvoice, setNextInvoice] = useState("INV-001");
+
+  const {
+    cart,
+    addInventoryToCart,
+    addServiceToCart,
+    addFreebieChoice,
+    updateFreebieChoice,
+    updateFreebieQuantity,
+    removeFreebieChoice,
+    updateQuantity,
+    clearCart,
+    removeItem,
+  } = useCart();
 
   useEffect(() => {
     loadInventory();
@@ -44,166 +57,6 @@ const OpenSales = () => {
       setNextInvoice("INV-0001");
     }
   }, [openSales, closedSales]);
-
-  // 🛒 Cart Management
-  const addInventoryToCart = (item) => {
-    setCart((prev) => {
-      const existing = prev.find(
-        (i) => i.type === "inventory" && i.id === item.id
-      );
-      if (existing) {
-        return prev.map((i) =>
-          i.id === item.id && i.type === "inventory"
-            ? { ...i, quantity: i.quantity + 1 }
-            : i
-        );
-      }
-      return [
-        ...prev,
-        {
-          type: "inventory",
-          id: item.id,
-          name: item.item_name,
-          price: item.price,
-          quantity: 1,
-        },
-      ];
-    });
-  };
-
-  const addServiceToCart = (service) => {
-    setCart((prev) => {
-      const existing = prev.find(
-        (i) => i.type === "service" && i.id === service.id
-      );
-      if (existing) {
-        return prev.map((i) =>
-          i.id === service.id && i.type === "service"
-            ? { ...i, quantity: i.quantity + 1 }
-            : i
-        );
-      }
-      return [
-        ...prev,
-        {
-          type: "service",
-          id: service.id,
-          name: service.service_name,
-          price: service.price,
-          quantity: 1,
-          freebies: service.freebies.map((cls) => ({
-            classification: cls,
-            choices: [],
-          })),
-        },
-      ];
-    });
-  };
-
-  const addFreebieChoice = (itemId, classification) => {
-    setCart((prev) =>
-      prev.map((cartItem) =>
-        cartItem.id === itemId && cartItem.type === "service"
-          ? {
-              ...cartItem,
-              freebies: cartItem.freebies.map((f) =>
-                f.classification === classification
-                  ? {
-                      ...f,
-                      choices: [...(f.choices || []), { item: "", qty: 1 }],
-                    }
-                  : f
-              ),
-            }
-          : cartItem
-      )
-    );
-  };
-
-  const updateFreebieChoice = (itemId, classification, itemName, cIdx) => {
-    setCart((prev) =>
-      prev.map((cartItem) =>
-        cartItem.id === itemId && cartItem.type === "service"
-          ? {
-              ...cartItem,
-              freebies: cartItem.freebies.map((f) =>
-                f.classification === classification
-                  ? {
-                      ...f,
-                      choices: f.choices.map((c, i) =>
-                        i === cIdx ? { ...c, item: itemName } : c
-                      ),
-                    }
-                  : f
-              ),
-            }
-          : cartItem
-      )
-    );
-  };
-
-  const updateFreebieQuantity = (itemId, classification, cIdx, qty) => {
-    setCart((prev) =>
-      prev.map((cartItem) => {
-        if (cartItem.id === itemId && cartItem.type === "service") {
-          return {
-            ...cartItem,
-            freebies: cartItem.freebies.map((f) => {
-              if (f.classification === classification) {
-                const totalOther = f.choices.reduce(
-                  (sum, c, i) => (i === cIdx ? sum : sum + c.qty),
-                  0
-                );
-                const maxAllowed = cartItem.quantity - totalOther;
-                return {
-                  ...f,
-                  choices: f.choices.map((c, i) =>
-                    i === cIdx
-                      ? { ...c, qty: Math.min(qty, maxAllowed) }
-                      : c
-                  ),
-                };
-              }
-              return f;
-            }),
-          };
-        }
-        return cartItem;
-      })
-    );
-  };
-
-  const removeFreebieChoice = (itemId, classification, cIdx) => {
-    setCart((prev) =>
-      prev.map((cartItem) =>
-        cartItem.id === itemId && cartItem.type === "service"
-          ? {
-              ...cartItem,
-              freebies: cartItem.freebies.map((f) =>
-                f.classification === classification
-                  ? {
-                      ...f,
-                      choices: f.choices.filter((_, i) => i !== cIdx),
-                    }
-                  : f
-              ),
-            }
-          : cartItem
-      )
-    );
-  };
-
-  const updateQuantity = (id, type, change) => {
-    setCart((prev) =>
-      prev
-        .map((item) =>
-          item.id === id && item.type === type
-            ? { ...item, quantity: Math.max(item.quantity + change, 1) }
-            : item
-        )
-        .filter((item) => item.quantity > 0)
-    );
-  };
 
   // ✅ Checkout
   const handleCheckout = async () => {
@@ -239,7 +92,7 @@ const OpenSales = () => {
 
     const sale = { invoice_number: nextInvoice, items };
     const success = await createOpenSale(sale);
-    if (success) setCart([]);
+    if (success) clearCart();
   };
 
   return (
@@ -490,17 +343,7 @@ const OpenSales = () => {
                           ₱{(item.price * item.quantity).toFixed(2)}
                           </span>
                           <button
-                            onClick={() =>
-                              setCart((prev) =>
-                                prev.filter(
-                                  (cartItem) =>
-                                    !(
-                                      cartItem.id === item.id &&
-                                      cartItem.type === item.type
-                                    )
-                                )
-                              )
-                            }
+                            onClick={() => removeItem(item.id, item.type)}
                             className="mt-1 text-red-600 dark:text-red-400 hover:text-red-800 dark:hover:text-red-300 text-xs"
                           >
                             Remove

@@ -1,5 +1,6 @@
 import React, { useState, useRef } from "react";
 import Invoice from "./Invoice"; // ✅ Make sure you have this component
+import { printInvoice } from "../utils/printInvoice";
 
 const ListSales = ({
   openSales,
@@ -43,129 +44,8 @@ const ListSales = ({
       }
     };
 
-    const handlePrint = (sale) => {
-      const total = sale.items.reduce(
-        (sum, it) => sum + Number(it.price) * (it.qty || 1),
-        0
-      );
-    
-      // Generate HTML for items and freebies
-      const itemsHtml = sale.items
-        .map((it) => {
-          const itemName = it.type === "service" ? it.service_name : it.item_name;
-          const qty = it.qty || 1;
-          const price = (Number(it.price) * qty).toFixed(2);
-    
-          let freebiesHtml = "";
-          if (it.freebies && it.freebies.length > 0) {
-            freebiesHtml = it.freebies
-              .map((f) =>
-                f.choices
-                  .map(
-                    (c) =>
-                      `<div style="display:flex;justify-content:space-between;padding-left:10px;font-size:11px;">
-                        <span>+ ${c.item} x${c.qty}</span>
-                        <span>FREE</span>
-                      </div>`
-                  )
-                  .join("")
-              )
-              .join("");
-          }
-    
-          return `
-            <div style="margin-bottom:4px;">
-              <div style="display:flex;justify-content:space-between;">
-                <span>${itemName} x${qty}</span>
-                <span>${price}</span>
-              </div>
-              ${freebiesHtml}
-            </div>
-          `;
-        })
-        .join("");
-    
-      const newPage = window.open("", "_blank", "width=600,height=800");
-    
-      newPage.document.open();
-      newPage.document.write(`
-        <html>
-          <head>
-            <title>Invoice #${sale.invoice_number}</title>
-            <style>
-              body {
-                font-family: monospace;
-                font-size: 12px;
-                width: 58mm;
-                margin: 0;
-                padding: 1px;
-              }
-              hr {
-                border: 0;
-                border-top: 1px dashed #000;
-                margin: 4px 0;
-              }
-            </style>
-          </head>
-          <body>
-            <!-- Logo -->
-            <div style="text-align:center;margin-bottom:4px;">
-              <img src="https://i.ibb.co/NFtDrgj/SPINCREDIBLE.png" 
-                   alt="SPINCREDIBLE Logo" 
-                   style="max-width:50mm;width:100%;height:auto;margin-bottom:6px;" />
-            </div>
-    
-            <!-- Store Details -->
-            <div style="text-align:center;margin-bottom:8px;">
-              <h2 style="font-size:14px;margin:0;">SPINCREDIBLE</h2>
-              <p style="margin:0;">Rizal Street Ext</p>
-              <p style="margin:0;">Mo: 0962-683-7430</p>
-            </div>
-    
-            <p>Invoice #: ${sale.invoice_number}</p>
-            <p>Date: ${new Date(sale.created_at).toLocaleString()}</p>
-            ${
-              sale.paid_at
-                ? `<p>Paid: ${new Date(sale.paid_at).toLocaleString()}</p>`
-                : ""
-            }
-            <hr />
-    
-            <!-- Items -->
-            ${itemsHtml}
-            <hr />
-    
-            <!-- Total -->
-            <div style="display:flex;justify-content:space-between;font-weight:bold;">
-              <span>Total</span>
-              <span>${total.toFixed(2)}</span>
-            </div>
-            <hr />
-    
-            <!-- Footer -->
-            <p style="text-align:center;margin-top:12px;">
-              Thank you for your purchase!
-            </p>
-    
-            <!-- Print Button -->
-            <button style="
-              display:block;
-              margin:15px auto;
-              padding:8px 16px;
-              font-size:14px;
-              background-color:#4f46e5;
-              color:white;
-              border:none;
-              border-radius:6px;
-              cursor:pointer;
-            " onclick="window.print()">Print Invoice</button>
-          </body>
-        </html>
-      `);
-      newPage.document.close();
-    };
-    
-    
+
+
 
   const handleAddItemToSale = async (sale, item, type) => {
     const newEntry =
@@ -335,7 +215,7 @@ const ListSales = ({
                     </button>
 
                     <button
-                      onClick={() => handlePrint(sale)}
+                      onClick={() => printInvoice(sale)}
                       className="px-3 py-1.5 border border-green-600 text-green-700 dark:text-green-400 
                                 dark:border-green-500 rounded-md text-sm font-medium hover:bg-green-50 
                                 dark:hover:bg-green-900/30 transition-colors shadow-sm"

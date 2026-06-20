@@ -1,5 +1,7 @@
 import { useState, useEffect } from "react";
 import { useSales } from "../hooks/useSales";
+import { useCart } from "../hooks/useCart";
+import { printInvoice } from "../utils/printInvoice";
 
 const OpenSalesOffline = () => {
   // Add near the other useState calls at top of component
@@ -41,7 +43,18 @@ const OpenSalesOffline = () => {
     { id: 6, service_name: "Fold", price: 20, freebies: [] },
   ]);
 
-  const [cart, setCart] = useState([]);
+  const {
+    cart,
+    addInventoryToCart,
+    addServiceToCart,
+    addFreebieChoice,
+    updateFreebieChoice,
+    updateFreebieQuantity,
+    removeFreebieChoice,
+    updateQuantity,
+    clearCart,
+    removeItem,
+  } = useCart();
   const [sales, setSales] = useState([]);
   const [invoiceNumber, setInvoiceNumber] = useState("INV-0001");
 
@@ -59,167 +72,6 @@ const OpenSalesOffline = () => {
       setInvoiceNumber(`INV-${next}`);
     }
   }, []);
-
-  // 🛒 Cart Management
-  const addInventoryToCart = (item) => {
-    setCart((prev) => {
-      const existing = prev.find(
-        (i) => i.type === "inventory" && i.id === item.id
-      );
-      if (existing) {
-        return prev.map((i) =>
-          i.id === item.id && i.type === "inventory"
-            ? { ...i, quantity: i.quantity + 1 }
-            : i
-        );
-      }
-      return [
-        ...prev,
-        {
-          type: "inventory",
-          id: item.id,
-          name: item.item_name,
-          price: item.price,
-          quantity: 1,
-        },
-      ];
-    });
-  };
-
-  const addServiceToCart = (service) => {
-    setCart((prev) => {
-      const existing = prev.find(
-        (i) => i.type === "service" && i.id === service.id
-      );
-      if (existing) {
-        return prev.map((i) =>
-          i.id === service.id && i.type === "service"
-            ? { ...i, quantity: i.quantity + 1 }
-            : i
-        );
-      }
-      return [
-        ...prev,
-        {
-          type: "service",
-          id: service.id,
-          name: service.service_name,
-          price: service.price,
-          quantity: 1,
-          freebies: service.freebies.map((cls) => ({
-            classification: cls,
-            choices: [],
-          })),
-        },
-      ];
-    });
-  };
-
-  // 🎁 FREEBIE HELPERS
-  const addFreebieChoice = (itemId, classification) => {
-    setCart((prev) =>
-      prev.map((cartItem) =>
-        cartItem.id === itemId && cartItem.type === "service"
-          ? {
-              ...cartItem,
-              freebies: cartItem.freebies.map((f) =>
-                f.classification === classification
-                  ? {
-                      ...f,
-                      choices: [...(f.choices || []), { item: "", qty: 1 }],
-                    }
-                  : f
-              ),
-            }
-          : cartItem
-      )
-    );
-  };
-
-  const updateFreebieChoice = (itemId, classification, itemName, cIdx) => {
-    setCart((prev) =>
-      prev.map((cartItem) =>
-        cartItem.id === itemId && cartItem.type === "service"
-          ? {
-              ...cartItem,
-              freebies: cartItem.freebies.map((f) =>
-                f.classification === classification
-                  ? {
-                      ...f,
-                      choices: f.choices.map((c, i) =>
-                        i === cIdx ? { ...c, item: itemName } : c
-                      ),
-                    }
-                  : f
-              ),
-            }
-          : cartItem
-      )
-    );
-  };
-
-  const updateFreebieQuantity = (itemId, classification, cIdx, qty) => {
-    setCart((prev) =>
-      prev.map((cartItem) => {
-        if (cartItem.id === itemId && cartItem.type === "service") {
-          return {
-            ...cartItem,
-            freebies: cartItem.freebies.map((f) => {
-              if (f.classification === classification) {
-                const totalOther = f.choices.reduce(
-                  (sum, c, i) => (i === cIdx ? sum : sum + c.qty),
-                  0
-                );
-                const maxAllowed = cartItem.quantity - totalOther;
-                return {
-                  ...f,
-                  choices: f.choices.map((c, i) =>
-                    i === cIdx
-                      ? { ...c, qty: Math.min(qty, maxAllowed) }
-                      : c
-                  ),
-                };
-              }
-              return f;
-            }),
-          };
-        }
-        return cartItem;
-      })
-    );
-  };
-
-  const removeFreebieChoice = (itemId, classification, cIdx) => {
-    setCart((prev) =>
-      prev.map((cartItem) =>
-        cartItem.id === itemId && cartItem.type === "service"
-          ? {
-              ...cartItem,
-              freebies: cartItem.freebies.map((f) =>
-                f.classification === classification
-                  ? {
-                      ...f,
-                      choices: f.choices.filter((_, i) => i !== cIdx),
-                    }
-                  : f
-              ),
-            }
-          : cartItem
-      )
-    );
-  };
-
-  const updateQuantity = (id, type, change) => {
-    setCart((prev) =>
-      prev
-        .map((item) =>
-          item.id === id && item.type === type
-            ? { ...item, quantity: Math.max(item.quantity + change, 1) }
-            : item
-        )
-        .filter((item) => item.quantity > 0)
-    );
-  };
 
   // 💾 Save to localStorage
   const handleCheckout = () => {
@@ -263,7 +115,7 @@ const OpenSalesOffline = () => {
     const nextNum = parseInt(invoiceNumber.replace("INV-", ""), 10) + 1;
     setInvoiceNumber(`INV-${String(nextNum).padStart(4, "0")}`);
 
-    setCart([]);
+    clearCart();
     alert("Sale saved offline!");
   };
 
@@ -280,127 +132,6 @@ const OpenSalesOffline = () => {
     0
   );
 
-  const handlePrint = (sale) => {
-    const total = sale.items.reduce(
-      (sum, it) => sum + Number(it.price) * (it.qty || 1),
-      0
-    );
-  
-    // Generate HTML for items and freebies
-    const itemsHtml = sale.items
-      .map((it) => {
-        const itemName = it.type === "service" ? it.service_name : it.item_name;
-        const qty = it.qty || 1;
-        const price = (Number(it.price) * qty).toFixed(2);
-  
-        let freebiesHtml = "";
-        if (it.freebies && it.freebies.length > 0) {
-          freebiesHtml = it.freebies
-            .map((f) =>
-              f.choices
-                .map(
-                  (c) =>
-                    `<div style="display:flex;justify-content:space-between;padding-left:10px;font-size:11px;">
-                      <span>+ ${c.item} x${c.qty}</span>
-                      <span>FREE</span>
-                    </div>`
-                )
-                .join("")
-            )
-            .join("");
-        }
-  
-        return `
-          <div style="margin-bottom:4px;">
-            <div style="display:flex;justify-content:space-between;">
-              <span>${itemName} x${qty}</span>
-              <span>${price}</span>
-            </div>
-            ${freebiesHtml}
-          </div>
-        `;
-      })
-      .join("");
-  
-    const newPage = window.open("", "_blank", "width=600,height=800");
-  
-    newPage.document.open();
-    newPage.document.write(`
-      <html>
-        <head>
-          <title>Invoice #${sale.invoice_number}</title>
-          <style>
-            body {
-              font-family: monospace;
-              font-size: 12px;
-              width: 58mm;
-              margin: 0;
-              padding: 1px;
-            }
-            hr {
-              border: 0;
-              border-top: 1px dashed #000;
-              margin: 4px 0;
-            }
-          </style>
-        </head>
-        <body>
-          <!-- Logo -->
-          <div style="text-align:center;margin-bottom:4px;">
-            <img src="https://i.ibb.co/NFtDrgj/SPINCREDIBLE.png" 
-                 alt="SPINCREDIBLE Logo" 
-                 style="max-width:50mm;width:100%;height:auto;margin-bottom:6px;" />
-          </div>
-  
-          <!-- Store Details -->
-          <div style="text-align:center;margin-bottom:8px;">
-            <h2 style="font-size:14px;margin:0;">SPINCREDIBLE</h2>
-            <p style="margin:0;">Rizal Street Ext</p>
-            <p style="margin:0;">Mo: 0962-683-7430</p>
-          </div>
-  
-          <p>Invoice #: ${sale.invoice_number}</p>
-          <p>Date: ${new Date(sale.created_at).toLocaleString()}</p>
-          ${
-            sale.paid_at
-              ? `<p>Paid: ${new Date(sale.paid_at).toLocaleString()}</p>`
-              : ""
-          }
-          <hr />
-  
-          <!-- Items -->
-          ${itemsHtml}
-          <hr />
-  
-          <!-- Total -->
-          <div style="display:flex;justify-content:space-between;font-weight:bold;">
-            <span>Total</span>
-            <span>${total.toFixed(2)}</span>
-          </div>
-          <hr />
-  
-          <!-- Footer -->
-          <p style="text-align:center;margin-top:12px;">
-            Thank you for your purchase!
-          </p>
-  
-          <!-- Print Button -->
-          <button style="
-            display:block;
-            margin:15px auto;
-            padding:8px 16px;
-            font-size:14px;
-            background-color:#4f46e5;
-            color:white;
-            border:none;
-            border-radius:6px;
-            cursor:pointer;
-          " onclick="window.print()">Print Invoice</button>
-        </body>
-      </html>
-    `);
-    newPage.document.close();
-  };
 
   const handleCreateOpenSale = async (sale, index) => {
     try {
@@ -691,17 +422,7 @@ const OpenSalesOffline = () => {
                         ₱{(item.price * item.quantity).toFixed(2)}
                     </span>
                     <button
-                        onClick={() =>
-                        setCart((prev) =>
-                            prev.filter(
-                            (cartItem) =>
-                                !(
-                                cartItem.id === item.id &&
-                                cartItem.type === item.type
-                                )
-                            )
-                        )
-                        }
+                        onClick={() => removeItem(item.id, item.type)}
                         className="mt-1 text-red-600 dark:text-red-400 hover:text-red-800 dark:hover:text-red-300 text-xs transition"
                     >
                         Remove
@@ -795,7 +516,7 @@ const OpenSalesOffline = () => {
                     </button>
 
                     <button
-                        onClick={() => handlePrint(s)}
+                        onClick={() => printInvoice(s)}
                         className="px-3 py-1.5 bg-green-600 text-white rounded-md text-sm font-medium hover:bg-green-700 transition-colors shadow-sm"
                     >
                         Print

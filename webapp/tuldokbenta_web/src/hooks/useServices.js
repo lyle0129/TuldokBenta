@@ -1,8 +1,6 @@
 // hooks/useServices.js
 import { useState, useCallback } from "react";
-
-const API_URL = "http://localhost:5001/api"; // change for production
-// const API_URL = "https://pos-backend-ygit.onrender.com/api"; 
+import { API_BASE_URL } from "../api";
 
 export const useServices = () => {
   const [services, setServices] = useState([]);
@@ -11,7 +9,7 @@ export const useServices = () => {
   // ---------- FETCH ---------- //
   const fetchServices = useCallback(async () => {
     try {
-      const res = await fetch(`${API_URL}/services`);
+      const res = await fetch(`${API_BASE_URL}/services`);
       const data = await res.json();
       setServices(data);
     } catch (error) {
@@ -31,7 +29,7 @@ export const useServices = () => {
   // ---------- MUTATIONS ---------- //
   const createService = async (service) => {
     try {
-      const res = await fetch(`${API_URL}/services`, {
+      const res = await fetch(`${API_BASE_URL}/services`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(service),
@@ -47,7 +45,7 @@ export const useServices = () => {
 
   const updateService = async (id, updates) => {
     try {
-      const res = await fetch(`${API_URL}/services/${id}`, {
+      const res = await fetch(`${API_BASE_URL}/services/${id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(updates),
@@ -63,7 +61,7 @@ export const useServices = () => {
 
   const deleteService = async (id) => {
     try {
-      const res = await fetch(`${API_URL}/services/${id}`, { method: "DELETE" });
+      const res = await fetch(`${API_BASE_URL}/services/${id}`, { method: "DELETE" });
       if (!res.ok) throw new Error("Failed to delete service");
       await loadServices();
     } catch (error) {

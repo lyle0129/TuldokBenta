@@ -1,8 +1,6 @@
 // hooks/useInventory.js
 import { useState, useCallback } from "react";
-
-const API_URL = "http://localhost:5001/api"; // change for production
-// const API_URL = "https://pos-backend-ygit.onrender.com/api"; 
+import { API_BASE_URL } from "../api";
 
 export const useInventory = () => {
   const [inventory, setInventory] = useState([]);
@@ -11,7 +9,7 @@ export const useInventory = () => {
   // ---------- FETCH ---------- //
   const fetchInventory = useCallback(async () => {
     try {
-      const res = await fetch(`${API_URL}/inventory`);
+      const res = await fetch(`${API_BASE_URL}/inventory`);
       const data = await res.json();
       setInventory(data);
     } catch (error) {
@@ -31,7 +29,7 @@ export const useInventory = () => {
   // ---------- MUTATIONS ---------- //
   const createInventoryItem = async (item) => {
     try {
-      const res = await fetch(`${API_URL}/inventory`, {
+      const res = await fetch(`${API_BASE_URL}/inventory`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(item),
@@ -47,7 +45,7 @@ export const useInventory = () => {
 
   const updateInventoryItem = async (id, updates) => {
     try {
-      const res = await fetch(`${API_URL}/inventory/${id}`, {
+      const res = await fetch(`${API_BASE_URL}/inventory/${id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(updates),
@@ -63,7 +61,7 @@ export const useInventory = () => {
 
   const deleteInventoryItem = async (id) => {
     try {
-      const res = await fetch(`${API_URL}/inventory/${id}`, { method: "DELETE" });
+      const res = await fetch(`${API_BASE_URL}/inventory/${id}`, { method: "DELETE" });
       if (!res.ok) throw new Error("Failed to delete inventory item");
       await loadInventory();
     } catch (error) {

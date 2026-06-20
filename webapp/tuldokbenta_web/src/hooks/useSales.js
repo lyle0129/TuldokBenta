@@ -1,8 +1,6 @@
 // hooks/useSales.js
 import { useState, useCallback } from "react";
-
-const API_URL = "http://localhost:5001/api"; // change for production
-// const API_URL = "https://pos-backend-ygit.onrender.com/api"; 
+import { API_BASE_URL } from "../api";
 
 export const useSales = () => {
   const [openSales, setOpenSales] = useState([]);
@@ -13,7 +11,7 @@ export const useSales = () => {
   // ---------- FETCHERS ---------- //
   const fetchOpenSales = useCallback(async () => {
     try {
-      const res = await fetch(`${API_URL}/open-sales`);
+      const res = await fetch(`${API_BASE_URL}/open-sales`);
       const data = await res.json();
       setOpenSales(data);
     } catch (error) {
@@ -23,7 +21,7 @@ export const useSales = () => {
 
   const fetchClosedSales = useCallback(async () => {
     try {
-      const res = await fetch(`${API_URL}/closed-sales`);
+      const res = await fetch(`${API_BASE_URL}/closed-sales`);
       const data = await res.json();
       setClosedSales(data);
     } catch (error) {
@@ -34,7 +32,7 @@ export const useSales = () => {
   // ✅ Date-filtered versions (for reports)
   const fetchOpenSalesByDate = useCallback(async (lowdate, highdate) => {
     try {
-      const res = await fetch(`${API_URL}/open-sales?lowdate=${lowdate}&highdate=${highdate}`);
+      const res = await fetch(`${API_BASE_URL}/open-sales?lowdate=${lowdate}&highdate=${highdate}`);
       const data = await res.json();
       return data;
     } catch (error) {
@@ -46,7 +44,7 @@ export const useSales = () => {
   const fetchClosedSalesByDate = useCallback(async (lowdate, highdate) => {
     try {
       const res = await fetch(
-        `${API_URL}/closed-sales?lowdate=${lowdate}&highdate=${highdate}`
+        `${API_BASE_URL}/closed-sales?lowdate=${lowdate}&highdate=${highdate}`
       );
       const data = await res.json();
       setClosedSalesbyDate(data); // ✅ update the table with filtered data
@@ -92,7 +90,7 @@ export const useSales = () => {
   // ---------- MUTATIONS ---------- //
   const createOpenSale = async (sale) => {
     try {
-      const res = await fetch(`${API_URL}/open-sales`, {
+      const res = await fetch(`${API_BASE_URL}/open-sales`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(sale),
@@ -108,7 +106,7 @@ export const useSales = () => {
 
   const updateOpenSale = async (id, sale) => {
     try {
-      const res = await fetch(`${API_URL}/open-sales/${id}`, {
+      const res = await fetch(`${API_BASE_URL}/open-sales/${id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(sale), // send full sale
@@ -124,7 +122,7 @@ export const useSales = () => {
 
   const deleteOpenSale = async (id) => {
     try {
-      const res = await fetch(`${API_URL}/open-sales/${id}`, { method: "DELETE" });
+      const res = await fetch(`${API_BASE_URL}/open-sales/${id}`, { method: "DELETE" });
       if (!res.ok) throw new Error("Failed to delete open sale");
       await loadSales();
     } catch (error) {
@@ -134,7 +132,7 @@ export const useSales = () => {
 
   const paySale = async (id, paid_using) => {
     try {
-      const res = await fetch(`${API_URL}/pay-sale/${id}`, {
+      const res = await fetch(`${API_BASE_URL}/pay-sale/${id}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ paid_using }),
@@ -148,7 +146,7 @@ export const useSales = () => {
 
   const revertSale = async (id) => {
     try {
-      const res = await fetch(`${API_URL}/revert-sale/${id}`, { method: "POST" });
+      const res = await fetch(`${API_BASE_URL}/revert-sale/${id}`, { method: "POST" });
       if (!res.ok) throw new Error("Failed to revert sale");
       await loadSales();
     } catch (error) {
@@ -158,7 +156,7 @@ export const useSales = () => {
 
   const deleteClosedSale = async (id) => {
     try {
-      const res = await fetch(`${API_URL}/closed-sales/${id}`, { method: "DELETE" });
+      const res = await fetch(`${API_BASE_URL}/closed-sales/${id}`, { method: "DELETE" });
       if (!res.ok) throw new Error("Failed to delete closed sale");
       await loadSales();
     } catch (error) {

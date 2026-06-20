@@ -8,17 +8,17 @@ const ProtectedRoute = ({ children }) => {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
 
-  const correctPassword = "abc123"; // 🔒 your password
-
   const handleLogin = (e) => {
     e.preventDefault();
-    if (password === correctPassword) {
-      localStorage.setItem("authenticated", "true");
-      setAuthenticated(true);
-      setError("");
-    } else {
+    const adminPassword = import.meta.env.VITE_ADMIN_PASSWORD;
+    // Fail-closed: if the env var is not set, deny all logins.
+    if (!adminPassword || password !== adminPassword) {
       setError("Incorrect password.");
+      return;
     }
+    localStorage.setItem("authenticated", "true");
+    setAuthenticated(true);
+    setError("");
   };
 
   if (authenticated) {
