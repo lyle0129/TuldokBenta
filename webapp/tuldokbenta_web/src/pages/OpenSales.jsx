@@ -5,7 +5,7 @@ import { useServices } from "../hooks/useServices";
 import { useSales } from "../hooks/useSales";
 import { useCart } from "../hooks/useCart";
 import Invoice from "../components/shared/Invoice";
-import ListSales from "../components/ListSales";
+import ListSales from "../components/open-sales/ListSales";
 
 const OpenSales = () => {
   const { inventory, loadInventory } = useInventory();
