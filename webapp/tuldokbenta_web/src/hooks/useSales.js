@@ -1,6 +1,7 @@
 // hooks/useSales.js
 import { useState, useCallback } from "react";
 import { API_BASE_URL } from "../api";
+import { dayRange, todayISODate } from "../utils/dateRange";
 
 export const useSales = () => {
   const [openSales, setOpenSales] = useState([]);
@@ -54,38 +55,36 @@ export const useSales = () => {
   }, []);
   
 
+  /** Loads one calendar day of closed sales into `closedSalesbyDate`. */
+  const loadClosedSalesForDay = useCallback(
+    async (isoDate) => {
+      setIsLoading(true);
+      try {
+        const { lowdate, highdate } = dayRange(isoDate);
+        await fetchClosedSalesByDate(lowdate, highdate);
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [fetchClosedSalesByDate]
+  );
+
   const loadSales = useCallback(async () => {
     setIsLoading(true);
     try {
-      const now = new Date();
+      const { lowdate, highdate } = dayRange(todayISODate());
 
-    // Convert to local YYYY-MM-DD
-    const year = now.getFullYear();
-    const month = String(now.getMonth() + 1).padStart(2, "0");
-    const day = String(now.getDate()).padStart(2, "0");
-    const today = `${year}-${month}-${day}`;
-
-    // Build local time range for today
-    const lowdateLocal = new Date(`${today}T00:00:00`);
-    const highdateLocal = new Date(`${today}T23:59:59`);
-
-    // ✅ Convert to "YYYY-MM-DD HH:MM:SS" (already in UTC)
-    const formatDate = (d) => d.toISOString().slice(0, 19).replace("T", " ");
-
-      console.log(lowdateLocal)
-      console.log(highdateLocal)
-  
       await Promise.all([
         fetchOpenSales(),
         fetchClosedSales(),
-        fetchClosedSalesByDate(formatDate(lowdateLocal), formatDate(highdateLocal)), // ✅ works now
+        fetchClosedSalesByDate(lowdate, highdate),
       ]);
     } catch (error) {
       console.error("Error loading sales:", error);
     } finally {
       setIsLoading(false);
     }
-  }, [fetchOpenSales, fetchClosedSales, fetchClosedSalesByDate]);  
+  }, [fetchOpenSales, fetchClosedSales, fetchClosedSalesByDate]);
 
   // ---------- MUTATIONS ---------- //
 
@@ -193,6 +192,7 @@ export const useSales = () => {
     closedSalesbyDate,
     isLoading,
     loadSales,
+    loadClosedSalesForDay,
     createOpenSale,
     updateOpenSale,   // ✅ added update here
     fetchOpenSalesByDate,   // ✅ new

@@ -1,192 +1,111 @@
-import React, { useState, useRef } from "react";
-import Invoice from "../shared/Invoice";
+import React, { useState, useEffect } from "react";
 import { printInvoice } from "../../utils/printInvoice";
+import Pagination from "../shared/Pagination";
+import { isFreebieLine } from "../../utils/buildSaleItems";
+import { formatCurrency, formatDateTime, saleTotal } from "../../utils/format";
 
-const ListClosedSales = ({ closedSales, revertSale, deleteClosedSale, loadSales }) => {
+const SALES_PER_PAGE = 10;
+
+const ListClosedSales = ({
+  closedSales,
+  revertSale,
+  emptyMessage = "No closed sales yet.",
+}) => {
   const [currentPage, setCurrentPage] = useState(1);
-  const [invoiceSale, setInvoiceSale] = useState(null);
-  const [deletingSale, setDeletingSale] = useState(null);
-  const salesPerPage = 10;
-  const invoiceRef = useRef();
 
-  const indexOfLastSale = currentPage * salesPerPage;
-  const indexOfFirstSale = indexOfLastSale - salesPerPage;
-  const currentSales = closedSales.slice(indexOfFirstSale, indexOfLastSale);
-  const totalPages = Math.ceil(closedSales.length / salesPerPage);
+  // Searching or changing the day can shrink the list past the current page.
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [closedSales]);
 
-  const handlePageChange = (pageNumber) => {
-    if (pageNumber >= 1 && pageNumber <= totalPages) setCurrentPage(pageNumber);
-  };
+  const totalPages = Math.ceil(closedSales.length / SALES_PER_PAGE);
+  const indexOfLastSale = currentPage * SALES_PER_PAGE;
+  const currentSales = closedSales.slice(
+    indexOfLastSale - SALES_PER_PAGE,
+    indexOfLastSale
+  );
 
+  if (closedSales.length === 0) {
+    return (
+      <p className="text-gray-500 dark:text-gray-400 text-center italic py-8">
+        {emptyMessage}
+      </p>
+    );
+  }
 
   return (
     <div className="text-gray-800 dark:text-gray-100">
-      {closedSales.length === 0 ? (
-        <p className="text-gray-500 dark:text-gray-400 text-center italic">
-          No closed sales yet.
-        </p>
-      ) : (
-        <>
-          <div className="space-y-4">
-            {currentSales.map((sale) => {
-              const total = sale.items.reduce(
-                (sum, it) => sum + Number(it.price) * (it.qty || 1),
-                0
-              );
+      <div className="space-y-4">
+        {currentSales.map((sale) => (
+          <div
+            key={sale.id}
+            className="border border-gray-200 dark:border-gray-700 rounded-lg shadow-sm p-4 sm:p-5 flex flex-col sm:flex-row sm:justify-between sm:items-start gap-4 bg-white dark:bg-gray-800 hover:shadow-md transition"
+          >
+            <div className="min-w-0">
+              <h3 className="font-semibold text-lg text-gray-900 dark:text-gray-100">
+                Invoice #{sale.invoice_number}
+              </h3>
 
-              return (
-                <div
-                  key={sale.id}
-                  className="border border-gray-200 dark:border-gray-700 rounded-lg shadow-sm p-5 flex justify-between items-start bg-white dark:bg-gray-800 hover:shadow-md transition"
-                >
-                  <div>
-                    <h3 className="font-semibold text-lg text-gray-900 dark:text-gray-100">
-                      Invoice #{sale.invoice_number}
-                    </h3>
-                    <p className="text-sm text-gray-500 dark:text-gray-400">
-                      Created at: {new Date(sale.created_at).toLocaleString()}
-                    </p>
-                    <p className="text-base font-medium mt-1">
-                      Total: ${total.toFixed(2)}
-                    </p>
-                    <p className="text-sm text-gray-500 dark:text-gray-400">
-                      Paid using: {sale.paid_using}
-                    </p>
-                    <p className="text-sm text-gray-500 dark:text-gray-400">
-                      Paid at: {new Date(sale.paid_at).toLocaleString()}
-                    </p>
+              <p className="text-base font-medium mt-1 text-green-700 dark:text-green-400">
+                {formatCurrency(saleTotal(sale))}
+                <span className="ml-2 text-sm font-normal text-gray-500 dark:text-gray-400">
+                  via {sale.paid_using}
+                </span>
+              </p>
 
-                    <ul className="text-sm text-gray-600 dark:text-gray-300 list-disc pl-5 mt-2">
-                      {sale.items.map((it, i) => (
-                        <li key={i}>
-                          {it.type === "service"
-                            ? `${it.service_name} x${it.qty || 1}`
-                            : `${it.item_name} x${it.qty || 1}`}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                Paid at: {formatDateTime(sale.paid_at)}
+              </p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                Created at: {formatDateTime(sale.created_at)}
+              </p>
 
-                  <div className="flex flex-col space-y-2 text-sm">
-                    <button
-                      onClick={() => revertSale(sale.id)}
-                      className="px-3 py-1 bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200 rounded-md border border-yellow-200 dark:border-yellow-700 hover:bg-yellow-200 dark:hover:bg-yellow-800 transition"
-                    >
-                      Revert
-                    </button>
-
-                      {/* NOTE: Removing the delete button on the closed sales list because I havent handled reverting the stocks if deleted from here */}
-                    {/* <button
-                      onClick={() => setDeletingSale(sale)}
-                      className="px-3 py-1 bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-200 rounded-md border border-red-200 dark:border-red-700 hover:bg-red-200 dark:hover:bg-red-800 transition"
-                    > 
-                      Delete
-                    </button> */} 
-
-                    <button
-                      onClick={() => printInvoice(sale)}
-                      className="px-3 py-1 bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-200 rounded-md border border-purple-200 dark:border-purple-700 hover:bg-purple-200 dark:hover:bg-purple-800 transition"
-                    >
-                      Print
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          {/* 📱 Responsive Pagination */}
-          <div className="flex flex-col sm:flex-row justify-center items-center mt-8 gap-3 sm:gap-4 w-full">
-            {/* Previous Button */}
-            <button
-              onClick={() => handlePageChange(currentPage - 1)}
-              disabled={currentPage === 1}
-              className="px-3 py-1.5 rounded-md text-sm font-medium 
-                        bg-gray-200 dark:bg-gray-700 dark:text-gray-300 
-                        hover:bg-gray-300 dark:hover:bg-gray-600 
-                        disabled:opacity-50 disabled:cursor-not-allowed 
-                        transition-colors min-w-[80px]"
-            >
-              Previous
-            </button>
-
-            {/* Page Numbers (Scrollable on small screens) */}
-            <div
-              className="flex overflow-x-auto sm:overflow-visible scrollbar-hide gap-2 
-                        px-2 py-1 rounded-md bg-gray-100 dark:bg-gray-800 sm:bg-transparent sm:dark:bg-transparent 
-                        max-w-full sm:max-w-none"
-            >
-              {Array.from({ length: totalPages }, (_, i) => (
-                <button
-                  key={i + 1}
-                  onClick={() => handlePageChange(i + 1)}
-                  className={`flex-shrink-0 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                    currentPage === i + 1
-                      ? "bg-blue-600 text-white dark:bg-blue-500"
-                      : "bg-gray-200 dark:bg-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600"
-                  }`}
-                >
-                  {i + 1}
-                </button>
-              ))}
+              <ul className="text-sm text-gray-600 dark:text-gray-300 list-disc pl-5 mt-2 space-y-0.5">
+                {sale.items.map((it, i) => (
+                  <li key={i} className={isFreebieLine(it) ? "text-green-600 dark:text-green-400" : ""}>
+                    {it.type === "service"
+                      ? `${it.service_name} ×${it.qty || 1}`
+                      : `${it.item_name} ×${it.qty || 1}`}
+                    {isFreebieLine(it) && " (free)"}
+                  </li>
+                ))}
+              </ul>
             </div>
 
-            {/* Next Button */}
-            <button
-              onClick={() => handlePageChange(currentPage + 1)}
-              disabled={currentPage === totalPages}
-              className="px-3 py-1.5 rounded-md text-sm font-medium 
-                        bg-gray-200 dark:bg-gray-700 dark:text-gray-300 
-                        hover:bg-gray-300 dark:hover:bg-gray-600 
-                        disabled:opacity-50 disabled:cursor-not-allowed 
-                        transition-colors min-w-[80px]"
-            >
-              Next
-            </button>
-          </div>
-
-        </>
-      )}
-
-      {/* Delete Confirmation Modal */}
-      {deletingSale && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50">
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg w-full max-w-md p-6 border border-gray-200 dark:border-gray-700">
-            <h2 className="text-xl font-semibold mb-4 text-red-600 dark:text-red-400">
-              Confirm Delete
-            </h2>
-            <p className="text-gray-700 dark:text-gray-300 mb-6">
-              Are you sure you want to delete{" "}
-              <strong>Invoice #{deletingSale.invoice_number}</strong>?<br />
-              This action cannot be undone.
-            </p>
-
-            <div className="flex justify-end space-x-3">
+            {/* Full-width buttons on a phone; a narrow column from `sm:` up.
+                These used to be a fixed column that squeezed the invoice text
+                to a sliver on a narrow screen. */}
+            <div className="flex sm:flex-col gap-2 text-sm sm:flex-shrink-0">
               <button
-                onClick={() => setDeletingSale(null)}
-                className="px-4 py-2 bg-gray-200 dark:bg-gray-700 rounded hover:bg-gray-300 dark:hover:bg-gray-600"
+                type="button"
+                onClick={() => revertSale(sale.id)}
+                className="flex-1 sm:flex-none px-4 min-h-11 bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200 rounded-md border border-yellow-200 dark:border-yellow-700 hover:bg-yellow-200 dark:hover:bg-yellow-800 font-medium transition"
               >
-                Cancel
+                Revert
               </button>
+
+              {/* NOTE: no Delete here — reverting stock for a sale deleted at
+                  this stage isn't handled yet. */}
+
               <button
-                onClick={async () => {
-                  await deleteClosedSale(deletingSale.id);
-                  setDeletingSale(null);
-                  loadSales();
-                }}
-                className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
+                type="button"
+                onClick={() => printInvoice(sale)}
+                className="flex-1 sm:flex-none px-4 min-h-11 bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-200 rounded-md border border-purple-200 dark:border-purple-700 hover:bg-purple-200 dark:hover:bg-purple-800 font-medium transition"
               >
-                Yes, Delete
+                Print
               </button>
             </div>
           </div>
-        </div>
-      )}
-
-      {/* Hidden Invoice for Printing */}
-      <div ref={invoiceRef} style={{ display: "none" }}>
-        {invoiceSale && <Invoice sale={invoiceSale} />}
+        ))}
       </div>
+
+      <Pagination
+        currentPage={currentPage}
+        totalPages={totalPages}
+        onPageChange={setCurrentPage}
+        totalItems={closedSales.length}
+        pageSize={SALES_PER_PAGE}
+      />
     </div>
   );
 };
