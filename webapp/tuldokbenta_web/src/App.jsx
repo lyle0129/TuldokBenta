@@ -1,12 +1,12 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
-import Navbar from "./components/Navbar";
+import Navbar from "./components/shared/Navbar";
 import Inventory from "./pages/Inventory";
 import Services from "./pages/Services";
 import OpenSales from "./pages/OpenSales";
 import ClosedSales from "./pages/ClosedSales";
 import Reporting from "./pages/Reporting";
-import ProtectedRoute from "./components/ProtectedRoute";
-import Footer from "./components/Footer";
+import ProtectedRoute from "./components/shared/ProtectedRoute";
+import Footer from "./components/shared/Footer";
 import OpenSalesOffline from "./pages/OpenSalesOffline";
 
 function App() {

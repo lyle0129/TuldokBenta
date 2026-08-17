@@ -1,5 +1,5 @@
 import React, { useState, useRef } from "react";
-import Invoice from "./Invoice";
+import Invoice from "./shared/Invoice";
 import { printInvoice } from "../utils/printInvoice";
 import EditSaleModal from "./sales-modals/EditSaleModal";
 import PaySaleModal from "./sales-modals/PaySaleModal";

@@ -1,5 +1,5 @@
 import React, { useState, useRef } from "react";
-import Invoice from "../components/Invoice";
+import Invoice from "./shared/Invoice";
 import { printInvoice } from "../utils/printInvoice";
 
 const ListClosedSales = ({ closedSales, revertSale, deleteClosedSale, loadSales }) => {

@@ -32,7 +32,7 @@ async function attemptLogin(adminPasswordEnvValue, submitted) {
 
   // Fresh module so the component closes over the updated env.
   vi.resetModules()
-  const { default: ProtectedRoute } = await import('../components/ProtectedRoute.jsx')
+  const { default: ProtectedRoute } = await import('../components/shared/ProtectedRoute.jsx')
 
   localStorage.clear()
 
@@ -99,7 +99,7 @@ describe('ProtectedRoute — example-based baseline', () => {
   it('shows error message on wrong password', async () => {
     vi.stubEnv('VITE_ADMIN_PASSWORD', 'correct')
     vi.resetModules()
-    const { default: ProtectedRoute } = await import('../components/ProtectedRoute.jsx')
+    const { default: ProtectedRoute } = await import('../components/shared/ProtectedRoute.jsx')
 
     localStorage.clear()
     render(

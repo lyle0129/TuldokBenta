@@ -4,7 +4,7 @@ import { useInventory } from "../hooks/useInventory";
 import { useServices } from "../hooks/useServices";
 import { useSales } from "../hooks/useSales";
 import { useCart } from "../hooks/useCart";
-import Invoice from "../components/Invoice";
+import Invoice from "../components/shared/Invoice";
 import ListSales from "../components/ListSales";
 
 const OpenSales = () => {
