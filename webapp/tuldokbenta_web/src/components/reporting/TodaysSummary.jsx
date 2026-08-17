@@ -12,7 +12,7 @@ import {
   BarChart3,
   Activity
 } from 'lucide-react';
-import { useTodaysAnalytics } from "../hooks/useTodaysAnalytics";
+import { useTodaysAnalytics } from "../../hooks/useTodaysAnalytics";
 
 export default function TodaysSummary({ 
   openSales, 

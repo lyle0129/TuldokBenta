@@ -1,12 +1,12 @@
 import { useState, useEffect, useMemo } from "react";
 import { useSales } from "../hooks/useSales";
-import AdvancedFilters from "../components/AdvancedFilters";
-import EnhancedSalesList from "../components/EnhancedSalesList";
-import TodaysSummary from "../components/TodaysSummary";
-import OverviewSummary from "../components/OverviewSummary";
-import GrandTotalCard from "../components/GrandTotalCard";
-import SalesSummary from "../components/SalesSummary";
-import ClosedSalesTotal from "../components/ClosedSalesTotal";
+import AdvancedFilters from "../components/reporting/AdvancedFilters";
+import EnhancedSalesList from "../components/reporting/EnhancedSalesList";
+import TodaysSummary from "../components/reporting/TodaysSummary";
+import OverviewSummary from "../components/reporting/OverviewSummary";
+import GrandTotalCard from "../components/reporting/GrandTotalCard";
+import SalesSummary from "../components/reporting/SalesSummary";
+import ClosedSalesTotal from "../components/reporting/ClosedSalesTotal";
 
 export default function Reporting() {
   const { openSales, closedSales, loadSales, isLoading } = useSales();

@@ -11,11 +11,11 @@ import {
   RotateCcw,
   Package,
 } from 'lucide-react';
-import { useOverviewAnalytics } from '../hooks/useOverviewAnalytics';
-import RevenueTrendChart from './charts/RevenueTrendChart';
-import SalesVolumeChart from './charts/SalesVolumeChart';
-import PaymentBreakdownChart from './charts/PaymentBreakdownChart';
-import ItemSalesChart from './charts/ItemSalesChart';
+import { useOverviewAnalytics } from '../../hooks/useOverviewAnalytics';
+import RevenueTrendChart from '../charts/RevenueTrendChart';
+import SalesVolumeChart from '../charts/SalesVolumeChart';
+import PaymentBreakdownChart from '../charts/PaymentBreakdownChart';
+import ItemSalesChart from '../charts/ItemSalesChart';
 
 const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#06B6D4'];
 
