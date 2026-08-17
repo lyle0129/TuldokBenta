@@ -1,6 +1,6 @@
 import React, { useState, useRef } from "react";
-import Invoice from "./shared/Invoice";
-import { printInvoice } from "../utils/printInvoice";
+import Invoice from "../shared/Invoice";
+import { printInvoice } from "../../utils/printInvoice";
 
 const ListClosedSales = ({ closedSales, revertSale, deleteClosedSale, loadSales }) => {
   const [currentPage, setCurrentPage] = useState(1);

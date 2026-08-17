@@ -1,6 +1,6 @@
 import React, { useEffect } from "react";
 import { useSales } from "../hooks/useSales";
-import ListClosedSales from "../components/ListClosedSales";
+import ListClosedSales from "../components/closed-sales/ListClosedSales";
 
 const ClosedSales = () => {
   const { closedSalesbyDate, loadSales, revertSale, deleteClosedSale, isLoading } = useSales();
