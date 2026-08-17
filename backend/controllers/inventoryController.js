@@ -1,5 +1,14 @@
 import { sql } from "../config/db.js";
 
+/**
+ * `undefined`/`null` means "leave it alone" (the COALESCE cases below).
+ * Anything else has to be a whole number of at least 0 — stock is INT and is
+ * guarded by a CHECK (stock >= 0) constraint, so a bad value would otherwise
+ * surface as an opaque 500.
+ */
+const invalidStock = (stock) =>
+  stock !== undefined && stock !== null && (!Number.isInteger(Number(stock)) || Number(stock) < 0);
+
 // GET /api/inventory
 export const getInventory = async (req, res) => {
   try {
@@ -17,6 +26,9 @@ export const createOrRestockItem = async (req, res) => {
     const { item_name, price, stock, item_classification } = req.body;
     if (!item_name || price === undefined) {
       return res.status(400).json({ message: "Item name and price are required" });
+    }
+    if (invalidStock(stock)) {
+      return res.status(400).json({ message: "Stock must be a whole number of 0 or more" });
     }
 
     const existing = await sql`SELECT * FROM inventory WHERE item_name = ${item_name}`;
@@ -49,6 +61,15 @@ export const updateItem = async (req, res) => {
   try {
     const { id } = req.params;
     const { item_name, price, stock, item_classification } = req.body;
+    if (invalidStock(stock)) {
+      return res.status(400).json({ message: "Stock must be a whole number of 0 or more" });
+    }
+    // `stock` here is an absolute set, not a delta — this is the admin
+    // correction path, so whatever the admin typed wins.
+    //
+    // KNOWN LIMITATION: renaming `item_name` orphans any open sale holding the
+    // old name, because sale items reference inventory by name string with no
+    // foreign key. Restocking such a sale will match zero rows.
     const updated = await sql`
       UPDATE inventory
       SET item_name = COALESCE(${item_name}, item_name),

@@ -65,7 +65,9 @@ export function useCart() {
           name: service.service_name,
           price: service.price,
           quantity: 1,
-          freebies: service.freebies.map((cls) => ({
+          // `freebies` is JSONB on the server and can come back null, so don't
+          // assume the array the hardcoded catalog always provided.
+          freebies: (service.freebies || []).map((cls) => ({
             classification: cls,
             choices: [],
           })),

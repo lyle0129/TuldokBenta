@@ -1,7 +1,10 @@
 import { useState, useEffect } from "react";
 import { useSales } from "../hooks/useSales";
 import { useCart } from "../hooks/useCart";
+import { useOfflineCatalog } from "../hooks/useOfflineCatalog";
 import { printInvoice } from "../utils/printInvoice";
+import { buildSaleItems } from "../utils/buildSaleItems";
+import { readJSON, writeJSON, OFFLINE_SALES_KEY } from "../utils/storage";
 
 const OpenSalesOffline = () => {
   // Add near the other useState calls at top of component
@@ -11,37 +14,17 @@ const OpenSalesOffline = () => {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const { createOpenSale } = useSales();
 
-
-
-  // 🧩 Placeholder inventory & services
-  const [inventory] = useState([
-    { id: 1, item_name: "[Detergent] Ariel", item_classification: "Detergent", price: 15, stock: 10 },
-    { id: 2, item_name: "[Detergent] Tide", item_classification: "Detergent", price: 15, stock: 20 },
-    { id: 3, item_name: "[Detergent] Surf", item_classification: "Detergent", price: 15, stock: 15 },
-    { id: 4, item_name: "[Detergent] Breeze", item_classification: "Detergent", price: 15, stock: 10 },
-    { id: 5, item_name: "[Detergent] Champion", item_classification: "Detergent", price: 15, stock: 20 },
-    { id: 6, item_name: "[Fabcon] Downy Pink", item_classification: "Fabcon", price: 15, stock: 15 },
-    { id: 8, item_name: "[Fabcon] Downy Blue", item_classification: "Fabcon", price: 15, stock: 10 },
-    { id: 9, item_name: "[Fabcon] Surf", item_classification: "Fabcon", price: 15, stock: 20 },
-    { id: 10, item_name: "[Fabcon] Champion", item_classification: "Fabcon", price: 15, stock: 15 },
-    { id: 11, item_name: "[Fabcon] Del", item_classification: "Fabcon", price: 15, stock: 10 },
-    { id: 12, item_name: "Bleach", item_classification: "bleach", price: 10, stock: 15 },
-    { id: 13, item_name: "Plastic", item_classification: "Plastic", price: 3, stock: 10 },
-
-  ]);
-
-  const [services] = useState([
-    { id: 1, service_name: "Full Service", price: 170.00, freebies: [
-        "Plastic",
-        "Detergent",
-        "Fabcon"
-      ] },
-    { id: 2, service_name: "Wash", price: 60.00, freebies: [] },
-    { id: 3, service_name: "Dry", price: 60.00, freebies: [] },
-    { id: 4, service_name: "Extra Wash", price: 30.00, freebies: [] },
-    { id: 5, service_name: "Extra Dry", price: 30.00, freebies: [] },
-    { id: 6, service_name: "Fold", price: 20, freebies: [] },
-  ]);
+  // Real inventory and services, cached from the server. Replaces a hardcoded
+  // list that went stale as soon as anyone edited Inventory.
+  const {
+    inventory,
+    services,
+    lastSyncedAt,
+    isSeed,
+    refresh: refreshCatalog,
+    isRefreshing,
+    error: catalogError,
+  } = useOfflineCatalog();
 
   const {
     cart,
@@ -60,7 +43,9 @@ const OpenSalesOffline = () => {
 
   // 🧠 Load sales and next invoice from localStorage
   useEffect(() => {
-    const stored = JSON.parse(localStorage.getItem("offline_sales")) || [];
+    // readJSON tolerates corrupt data; a bare JSON.parse used to throw during
+    // render and white-screen the page, taking the queue with it.
+    const stored = readJSON(OFFLINE_SALES_KEY, []);
     setSales(stored);
 
     if (stored.length > 0) {
@@ -77,39 +62,15 @@ const OpenSalesOffline = () => {
   const handleCheckout = () => {
     if (cart.length === 0) return alert("Cart is empty!");
 
-    const items = cart.flatMap((i) => {
-      if (i.type === "inventory") {
-        return [
-          { type: "item", item_name: i.name, qty: i.quantity, price: i.price },
-        ];
-      } else if (i.type === "service") {
-        const serviceEntry = {
-          type: "service",
-          service_name: i.name,
-          qty: i.quantity,
-          price: i.price,
-        };
-        const freebieEntries =
-          i.freebies?.flatMap((f) =>
-            f.choices
-              ?.filter((c) => c.item)
-              .map((c) => ({
-                type: "item",
-                item_name: c.item,
-                qty: c.qty,
-                price: 0,
-              })) || []
-          ) || [];
-        return [serviceEntry, ...freebieEntries];
-      }
-      return [];
-    });
-
-    const sale = { invoice_number: invoiceNumber, items, date: new Date().toISOString() };
+    const sale = {
+      invoice_number: invoiceNumber,
+      items: buildSaleItems(cart),
+      date: new Date().toISOString(),
+    };
 
     const updatedSales = [...sales, sale];
     setSales(updatedSales);
-    localStorage.setItem("offline_sales", JSON.stringify(updatedSales));
+    writeJSON(OFFLINE_SALES_KEY, updatedSales);
 
     // Increment invoice
     const nextNum = parseInt(invoiceNumber.replace("INV-", ""), 10) + 1;
@@ -123,7 +84,7 @@ const OpenSalesOffline = () => {
   const deleteSale = (idx) => {
     const updated = sales.filter((_, i) => i !== idx);
     setSales(updated);
-    localStorage.setItem("offline_sales", JSON.stringify(updated));
+    writeJSON(OFFLINE_SALES_KEY, updated);
   };
 
   // 💰 Total
@@ -135,31 +96,27 @@ const OpenSalesOffline = () => {
 
   const handleCreateOpenSale = async (sale, index) => {
     try {
-      const openSaleData = {
+      // Only invoice_number and items are read server-side; `total` and
+      // `created_at` were computed here and then discarded.
+      const { ok, message } = await createOpenSale({
         invoice_number: sale.invoice_number,
         items: sale.items,
-        total: sale.items.reduce(
-          (sum, i) => sum + Number(i.price || 0) * Number(i.qty || 1),
-          0
-        ),
-        created_at: sale.date || new Date().toISOString(),
-      };
-  
-      const success = await createOpenSale(openSaleData);
-  
-      if (success) {
+      });
+
+      if (ok) {
         const updatedSales = sales.filter((_, i) => i !== index);
         setSales(updatedSales);
-  
-        // ✅ FIXED: use the same key as your delete function
-        localStorage.setItem("offline_sales", JSON.stringify(updatedSales));
-  
+        writeJSON(OFFLINE_SALES_KEY, updatedSales);
+
         alert(
           `✅ Open Sale “${sale.invoice_number}” successfully created and removed from offline storage.`
         );
       } else {
+        // Kept in local storage so it can be retried — commonly this is an
+        // invoice number that already exists on the server, which the View
+        // modal can edit before trying again.
         alert(
-          `❌ Failed to create Open Sale “${sale.invoice_number}”. Please try again.`
+          `❌ Could not create Open Sale “${sale.invoice_number}”.\n\n${message}\n\nIt is still saved offline.`
         );
       }
     } catch (error) {
@@ -169,25 +126,21 @@ const OpenSalesOffline = () => {
       );
     }
   };
-  
-  
+
   const updateOfflineSaleInvoice = (index, newInvoice) => {
-    try {
-      const updatedSales = [...sales];
-      updatedSales[index] = {
-        ...updatedSales[index],
-        invoice_number: newInvoice,
-      };
-  
-      setSales(updatedSales);
-      localStorage.setItem("offlineSales", JSON.stringify(updatedSales));
-      alert("Invoice number updated successfully!");
-      return true;
-    } catch (error) {
-      console.error("Error updating offline sale invoice:", error);
+    const updatedSales = [...sales];
+    updatedSales[index] = { ...updatedSales[index], invoice_number: newInvoice };
+
+    setSales(updatedSales);
+    // This used to write to "offlineSales" while every other access used
+    // "offline_sales", so the edit was reported as saved and then vanished on
+    // reload. Both now go through the one shared key.
+    if (!writeJSON(OFFLINE_SALES_KEY, updatedSales)) {
       alert("Failed to update invoice number.");
       return false;
     }
+    alert("Invoice number updated successfully!");
+    return true;
   };
 
   return (
@@ -195,6 +148,44 @@ const OpenSalesOffline = () => {
       <h1 className="text-2xl sm:text-3xl font-bold mb-6 text-gray-800 dark:text-gray-100 text-center sm:text-left">
         Offline Sales
       </h1>
+
+      {/* Catalog status — what this page is selling from, and how stale it is */}
+      <div className="mb-4 p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-sm flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div className="text-sm">
+          <p className="font-semibold text-gray-700 dark:text-gray-200">
+            Catalog: {inventory.length} items, {services.length} services
+          </p>
+          <p className="text-gray-500 dark:text-gray-400">
+            {lastSyncedAt
+              ? `Last synced: ${new Date(lastSyncedAt).toLocaleString()}`
+              : "Never synced — using built-in defaults. Refresh while online to load the real prices."}
+          </p>
+        </div>
+        <button
+          onClick={refreshCatalog}
+          disabled={isRefreshing}
+          className="px-4 py-2 rounded-md bg-blue-600 hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed text-white text-sm font-medium transition-colors whitespace-nowrap"
+        >
+          {isRefreshing ? "Refreshing…" : "⟳ Refresh catalog"}
+        </button>
+      </div>
+
+      {isSeed && (
+        <div className="mb-4 p-3 rounded-lg border border-orange-300 dark:border-orange-800 bg-orange-50 dark:bg-orange-950 text-sm text-orange-800 dark:text-orange-300">
+          ⚠️ These are built-in default items and prices, not your actual
+          inventory. Connect to the internet and press “Refresh catalog” before
+          taking sales.
+        </div>
+      )}
+
+      {catalogError && (
+        <div
+          role="alert"
+          className="mb-4 p-3 rounded-lg border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-950 text-sm text-red-700 dark:text-red-300"
+        >
+          {catalogError}
+        </div>
+      )}
 
       <div className="mb-4 p-4 bg-yellow-50 dark:bg-yellow-900 border border-yellow-300 dark:border-yellow-800 rounded-lg shadow-sm flex flex-col sm:flex-row sm:items-center sm:justify-between">
         <label className="font-semibold text-gray-700 dark:text-gray-200">
@@ -256,7 +247,7 @@ const OpenSalesOffline = () => {
                 <p className="mt-1 font-semibold text-gray-700 dark:text-gray-200">
                   ₱{service.price}
                 </p>
-                {service.freebies.length > 0 && (
+                {service.freebies?.length > 0 && (
                   <p className="text-sm text-green-600 dark:text-green-400 mt-1">
                     Includes freebies: {service.freebies.join(", ")}
                   </p>

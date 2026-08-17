@@ -6,6 +6,8 @@ import { useSales } from "../hooks/useSales";
 import { useCart } from "../hooks/useCart";
 import Invoice from "../components/shared/Invoice";
 import ListSales from "../components/open-sales/ListSales";
+import { buildSaleItems } from "../utils/buildSaleItems";
+import { writeJSON, OFFLINE_CATALOG_KEY } from "../utils/storage";
 
 const OpenSales = () => {
   const { inventory, loadInventory } = useInventory();
@@ -58,41 +60,29 @@ const OpenSales = () => {
     }
   }, [openSales, closedSales]);
 
+  // Keep the offline page's catalog fresh as a side effect of normal online
+  // use, so it rarely has to fall back to the built-in seed list.
+  useEffect(() => {
+    if (inventory.length === 0 && services.length === 0) return;
+    writeJSON(OFFLINE_CATALOG_KEY, {
+      inventory,
+      services,
+      syncedAt: new Date().toISOString(),
+    });
+  }, [inventory, services]);
+
   // ✅ Checkout
   const handleCheckout = async () => {
     if (cart.length === 0) return alert("Cart is empty!");
 
-    const items = cart.flatMap((i) => {
-      if (i.type === "inventory") {
-        return [
-          { type: "item", item_name: i.name, qty: i.quantity, price: i.price },
-        ];
-      } else if (i.type === "service") {
-        const serviceEntry = {
-          type: "service",
-          service_name: i.name,
-          qty: i.quantity,
-          price: i.price,
-        };
-        const freebieEntries =
-          i.freebies?.flatMap((f) =>
-            f.choices
-              ?.filter((c) => c.item)
-              .map((c) => ({
-                type: "item",
-                item_name: c.item,
-                qty: c.qty,
-                price: 0,
-              })) || []
-          ) || [];
-        return [serviceEntry, ...freebieEntries];
-      }
-      return [];
-    });
-
-    const sale = { invoice_number: nextInvoice, items };
-    const success = await createOpenSale(sale);
-    if (success) clearCart();
+    const sale = { invoice_number: nextInvoice, items: buildSaleItems(cart) };
+    const { ok, message } = await createOpenSale(sale);
+    if (ok) {
+      clearCart();
+      await loadInventory(); // stock just changed server-side
+    } else {
+      alert(message || "Could not save the sale.");
+    }
   };
 
   return (
@@ -372,6 +362,7 @@ const OpenSales = () => {
             updateOpenSale={updateOpenSale}
             paySale={paySale}
             loadSales={loadSales}
+            loadInventory={loadInventory}
             inventory={inventory}
             services={services}
           />

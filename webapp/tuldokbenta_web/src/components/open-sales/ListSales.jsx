@@ -4,7 +4,6 @@ import { printInvoice } from "../../utils/printInvoice";
 import EditSaleModal from "../sales-modals/EditSaleModal";
 import PaySaleModal from "../sales-modals/PaySaleModal";
 import DeleteSaleModal from "../sales-modals/DeleteSaleModal";
-import AddItemModal from "../sales-modals/AddItemModal";
 
 const ListSales = ({
   openSales,
@@ -12,6 +11,7 @@ const ListSales = ({
   updateOpenSale,
   paySale,
   loadSales,
+  loadInventory,
   inventory,
   services,
 }) => {
@@ -21,8 +21,8 @@ const ListSales = ({
   const [invoiceSale, setInvoiceSale] = useState(null);
   const [deletingSale, setDeletingSale] = useState(null);
 
-  const [showAddItemModal, setShowAddItemModal] = useState(false);
-  const [selectedSale, setSelectedSale] = useState(null);
+  const [editError, setEditError] = useState(null);
+  const [isSaving, setIsSaving] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [successMessage, setSuccessMessage] = useState("");
 
@@ -44,31 +44,45 @@ const ListSales = ({
     }
   };
 
-  const handleAddItemToSale = async (sale, item, type) => {
-    const newEntry =
-      type === "inventory"
-        ? { type: "item", item_name: item.item_name, qty: 1, price: item.price }
-        : {
-            type: "service",
-            service_name: item.service_name,
-            qty: 1,
-            price: item.price,
-          };
-
-    const updatedItems = [...sale.items, newEntry];
-    await updateOpenSale(sale.id, { ...sale, items: updatedItems });
-    await loadSales();
-
-    // ✅ Show success message
-    setSuccessMessage(
-      type === "inventory"
-        ? `${item.item_name} added successfully!`
-        : `${item.service_name} added successfully!`
-    );
+  const flashSuccess = (message) => {
+    setSuccessMessage(message);
     setShowSuccessModal(true);
-
-    // ✅ Auto close the success modal after 2 seconds
     setTimeout(() => setShowSuccessModal(false), 2000);
+  };
+
+  /**
+   * Stock is deducted server-side, so any sale mutation makes the "Stock:"
+   * figures on screen stale. loadSales alone doesn't refresh them — inventory
+   * is otherwise only fetched once on mount.
+   */
+  const refreshAfterMutation = async () => {
+    await Promise.all([loadSales?.(), loadInventory?.()]);
+  };
+
+  const openEditModal = (sale) => {
+    // Deep clone so staged edits can be abandoned with Cancel.
+    setEditingSale(JSON.parse(JSON.stringify(sale)));
+    setEditError(null);
+    setShowModal(true);
+  };
+
+  const handleSaveEdit = async (updatedSale) => {
+    setIsSaving(true);
+    // updateOpenSale reports the server's reason (e.g. "Not enough stock for
+    // X"); showing it is the difference between a failed save and a save that
+    // silently looks like nothing happened.
+    const { ok, message } = await updateOpenSale(updatedSale.id, updatedSale);
+    setIsSaving(false);
+
+    if (!ok) {
+      setEditError(message);
+      return;
+    }
+
+    setShowModal(false);
+    setEditError(null);
+    await loadInventory?.();
+    flashSuccess(`Invoice #${updatedSale.invoice_number} updated.`);
   };
 
   // 🧾 Render
@@ -131,26 +145,14 @@ const ListSales = ({
 
                   {/* Action buttons */}
                   <div className="flex flex-wrap justify-end gap-2 sm:gap-3">
+                    {/* Adding, removing and re-quantifying all happen inside
+                        the edit modal now, so they commit as one update. */}
                     <button
-                      onClick={() => {
-                        setEditingSale(JSON.parse(JSON.stringify(sale)));
-                        setShowModal(true);
-                      }}
-                      className="px-3 py-1.5 bg-yellow-400 text-white rounded-md text-sm font-medium 
+                      onClick={() => openEditModal(sale)}
+                      className="px-3 py-1.5 bg-yellow-400 text-white rounded-md text-sm font-medium
                                 hover:bg-yellow-500 transition-colors shadow-sm"
                     >
                       Edit
-                    </button>
-
-                    <button
-                      onClick={() => {
-                        setSelectedSale(sale);
-                        setShowAddItemModal(true);
-                      }}
-                      className="px-3 py-1.5 bg-blue-600 text-white rounded-md text-sm font-medium 
-                                hover:bg-blue-700 transition-colors shadow-sm"
-                    >
-                      + Add Item
                     </button>
 
                     <button
@@ -241,16 +243,20 @@ const ListSales = ({
       {/* Edit Modal */}
       <EditSaleModal
         sale={showModal ? editingSale : null}
-        onClose={() => setShowModal(false)}
-        onSave={async (updatedSale) => {
-          const success = await updateOpenSale(updatedSale.id, updatedSale);
-          if (success) {
-            setShowModal(false);
-            loadSales();
-          }
+        onClose={() => {
+          setShowModal(false);
+          setEditError(null);
         }}
-        onUpdate={setEditingSale}
+        onSave={handleSaveEdit}
+        onUpdate={(updater) => {
+          // Any further edit invalidates the last failure message.
+          setEditError(null);
+          setEditingSale(updater);
+        }}
         inventory={inventory}
+        services={services}
+        errorMessage={editError}
+        isSaving={isSaving}
       />
 
       {/* Pay Modal */}
@@ -260,7 +266,7 @@ const ListSales = ({
         onConfirm={async (method) => {
           await paySale(payingSale.id, method);
           setPayingSale(null);
-          loadSales();
+          await refreshAfterMutation();
         }}
       />
 
@@ -271,17 +277,8 @@ const ListSales = ({
         onConfirm={async () => {
           await deleteOpenSale(deletingSale.id);
           setDeletingSale(null);
-          loadSales();
+          await refreshAfterMutation();
         }}
-      />
-
-      {/* Add Item Modal */}
-      <AddItemModal
-        sale={showAddItemModal ? selectedSale : null}
-        onClose={() => setShowAddItemModal(false)}
-        onAdd={handleAddItemToSale}
-        inventory={inventory}
-        services={services}
       />
 
       {/* ✅ SUCCESS MODAL */}

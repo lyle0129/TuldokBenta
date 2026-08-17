@@ -88,6 +88,23 @@ export const useSales = () => {
   }, [fetchOpenSales, fetchClosedSales, fetchClosedSalesByDate]);  
 
   // ---------- MUTATIONS ---------- //
+
+  /**
+   * Pulls the server's explanation out of a failed response.
+   *
+   * The backend answers oversell with 400 {"message":"Not enough stock for X"};
+   * that used to be discarded, so the edit modal just sat there with no
+   * feedback and the sale looked like it had saved.
+   */
+  const errorMessageFrom = async (res, fallback) => {
+    try {
+      const body = await res.json();
+      return body?.message || fallback;
+    } catch {
+      return fallback;
+    }
+  };
+
   const createOpenSale = async (sale) => {
     try {
       const res = await fetch(`${API_BASE_URL}/open-sales`, {
@@ -95,12 +112,14 @@ export const useSales = () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(sale),
       });
-      if (!res.ok) throw new Error("Failed to create open sale");
+      if (!res.ok) {
+        return { ok: false, message: await errorMessageFrom(res, "Failed to create open sale") };
+      }
       await loadSales();
-      return true;
+      return { ok: true, message: null };
     } catch (error) {
       console.error("Error creating open sale:", error);
-      return false;
+      return { ok: false, message: "Could not reach the server. Check your connection." };
     }
   };
 
@@ -109,14 +128,18 @@ export const useSales = () => {
       const res = await fetch(`${API_BASE_URL}/open-sales/${id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(sale), // send full sale
+        // Only `items` is read server-side, but sending the whole sale keeps
+        // this callable with a row straight out of the list.
+        body: JSON.stringify(sale),
       });
-      if (!res.ok) throw new Error("Failed to update open sale");
+      if (!res.ok) {
+        return { ok: false, message: await errorMessageFrom(res, "Failed to update open sale") };
+      }
       await loadSales();
-      return true;
+      return { ok: true, message: null };
     } catch (error) {
       console.error("Error updating open sale:", error);
-      return false;
+      return { ok: false, message: "Could not reach the server. Check your connection." };
     }
   };
 

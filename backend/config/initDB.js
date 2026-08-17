@@ -45,6 +45,19 @@ export async function initDB() {
       )
     `;
 
+    // Guarantees stock can never go negative, even if two requests race between
+    // the availability check and the UPDATE. This is what makes the batched
+    // transactions in openSalesController safe — an oversell rolls the whole
+    // batch back instead of silently corrupting inventory.
+    // NOT VALID: enforced on every new write, but existing rows are not
+    // re-checked, so this cannot fail on stock that is already negative.
+    await sql`
+      DO $$ BEGIN
+        ALTER TABLE inventory
+          ADD CONSTRAINT inventory_stock_non_negative CHECK (stock >= 0) NOT VALID;
+      EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+    `;
+
     console.log("✅ Database initialized successfully");
   } catch (error) {
     console.error("❌ Error initializing DB", error);
