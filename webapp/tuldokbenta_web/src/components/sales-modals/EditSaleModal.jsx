@@ -1,5 +1,11 @@
 import React, { useState } from "react";
+import Modal from "../shared/Modal";
+import ConfirmDialog from "../shared/ConfirmDialog";
+import SearchInput from "../shared/SearchInput";
+import FreebieEditor from "../open-sales/FreebieEditor";
 import { syncFreebieLines, isFreebieLine } from "../../utils/buildSaleItems";
+import { freebieGapsFromSaleItems, describeFreebieGaps } from "../../utils/freebies";
+import { formatCurrency } from "../../utils/format";
 
 /**
  * Edit an open sale: change quantities, remove lines, and add new items or
@@ -22,7 +28,9 @@ const EditSaleModal = ({
 }) => {
   const [showPicker, setShowPicker] = useState(false);
   const [pickerTab, setPickerTab] = useState("inventory");
+  const [pickerQuery, setPickerQuery] = useState("");
   const [localError, setLocalError] = useState(null);
+  const [freebieGaps, setFreebieGaps] = useState(null);
 
   if (!sale) return null;
 
@@ -76,6 +84,7 @@ const EditSaleModal = ({
       return [...items, entry];
     });
     setShowPicker(false);
+    setPickerQuery("");
   };
 
   const addInventory = (item) =>
@@ -120,14 +129,25 @@ const EditSaleModal = ({
   const removeModalFreebieChoice = (idx, classification, cIdx) =>
     mapFreebies(idx, classification, (choices) => choices.filter((_, i) => i !== cIdx));
 
+  const commitSave = () =>
+    // Rebuild the derived price-0 freebie lines so the stock they consume
+    // matches the service quantities as they now stand.
+    onSave({ ...sale, items: syncFreebieLines(sale.items) });
+
   const handleSave = () => {
     if (sale.items.length === 0) {
       setLocalError("A sale needs at least one line. Delete the sale instead.");
       return;
     }
-    // Rebuild the derived price-0 freebie lines so the stock they consume
-    // matches the service quantities as they now stand.
-    onSave({ ...sale, items: syncFreebieLines(sale.items) });
+
+    // Same guard as checkout: an edit can just as easily leave a freebie the
+    // service granted unclaimed.
+    const gaps = freebieGapsFromSaleItems(sale.items);
+    if (gaps.length > 0) {
+      setFreebieGaps(gaps);
+      return;
+    }
+    commitSave();
   };
 
   // Freebie lines are derived, not directly editable — they follow their service.
@@ -142,13 +162,51 @@ const EditSaleModal = ({
 
   const shownError = localError || errorMessage;
 
-  return (
-    <div className="fixed inset-0 bg-black/40 dark:bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 px-4">
-      <div className="bg-white dark:bg-gray-900 border-t-4 border-yellow-500 rounded-2xl shadow-xl w-full max-w-2xl p-6 sm:p-8 transition-all">
-        <h2 className="text-xl sm:text-2xl font-semibold mb-4 text-gray-800 dark:text-gray-100 flex items-center gap-2">
-          ✏️ Edit Invoice #{sale.invoice_number}
-        </h2>
+  const pickerTerm = pickerQuery.trim().toLowerCase();
+  const pickerItems = inventory.filter(
+    (i) =>
+      !pickerTerm ||
+      i.item_name?.toLowerCase().includes(pickerTerm) ||
+      i.item_classification?.toLowerCase().includes(pickerTerm)
+  );
+  const pickerServices = services.filter(
+    (s) => !pickerTerm || s.service_name?.toLowerCase().includes(pickerTerm)
+  );
 
+  return (
+    <>
+      <Modal
+        open
+        onClose={onClose}
+        title={`✏️ Edit Invoice #${sale.invoice_number}`}
+        accent="yellow"
+        size="xl"
+        variant="sheet"
+        footer={
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <span className="font-semibold text-gray-800 dark:text-gray-100">
+              Total: {formatCurrency(total)}
+            </span>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={onClose}
+                className="flex-1 sm:flex-none px-4 min-h-11 rounded-md text-gray-700 dark:text-gray-200 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 font-medium transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSave}
+                disabled={isSaving}
+                className="flex-1 sm:flex-none px-4 min-h-11 rounded-md bg-green-600 hover:bg-green-700 disabled:opacity-60 disabled:cursor-not-allowed text-white font-medium transition-colors"
+              >
+                {isSaving ? "Saving…" : "Save Changes"}
+              </button>
+            </div>
+          </div>
+        }
+      >
         {shownError && (
           <div
             role="alert"
@@ -158,7 +216,7 @@ const EditSaleModal = ({
           </div>
         )}
 
-        <div className="space-y-4 max-h-[55vh] overflow-y-auto pr-1">
+        <div className="space-y-4">
           {editableLines.length === 0 && (
             <p className="text-sm italic text-gray-500 dark:text-gray-400">
               No items left — add one below, or cancel and delete the sale.
@@ -166,10 +224,7 @@ const EditSaleModal = ({
           )}
 
           {editableLines.map(({ line: it, idx }) => (
-            <div
-              key={idx}
-              className="border-b border-gray-200 dark:border-gray-700 pb-3"
-            >
+            <div key={idx} className="border-b border-gray-200 dark:border-gray-700 pb-3">
               <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2">
                 <div>
                   <p className="font-medium text-gray-800 dark:text-gray-100">
@@ -181,111 +236,41 @@ const EditSaleModal = ({
                     aria-label={`Quantity for ${it.service_name || it.item_name}`}
                     value={it.qty}
                     onChange={(e) => updateQty(idx, e.target.value)}
-                    className="mt-1 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 rounded-md px-2 py-1 w-24 focus:ring-2 focus:ring-yellow-400 outline-none"
+                    className="mt-1 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 rounded-md px-2 min-h-11 w-24 focus:ring-2 focus:ring-yellow-400 outline-none"
                   />
                 </div>
                 <div className="flex items-center gap-3">
                   <span className="font-semibold text-gray-700 dark:text-gray-100">
-                    ₱{(Number(it.price) * Number(it.qty)).toFixed(2)}
+                    {formatCurrency(Number(it.price) * Number(it.qty))}
                   </span>
                   <button
                     type="button"
                     onClick={() => removeLine(idx)}
                     aria-label={`Remove ${it.service_name || it.item_name}`}
                     title="Remove from sale"
-                    className="text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-500 text-lg leading-none px-1"
+                    className="w-11 h-11 rounded-md text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950 text-lg leading-none transition-colors"
                   >
                     ✕
                   </button>
                 </div>
               </div>
 
-              {/* Freebie editor */}
-              {it.type === "service" && it.freebies?.length > 0 && (
-                <div className="mt-3 space-y-3">
-                  {it.freebies.map((f, fIdx) => {
-                    const freebieSlots = it.qty;
-                    const totalUsed =
-                      f.choices?.reduce((sum, c) => sum + Number(c.qty || 0), 0) || 0;
-                    const remaining = freebieSlots - totalUsed;
-
-                    return (
-                      <div key={fIdx}>
-                        <label className="block text-sm text-gray-600 dark:text-gray-400 mb-1">
-                          Choose {f.classification} ({freebieSlots} free):
-                        </label>
-
-                        {f.choices?.map((choice, cIdx) => (
-                          <div
-                            key={cIdx}
-                            className="flex flex-col sm:flex-row sm:items-center sm:space-x-2 mb-2"
-                          >
-                            <select
-                              value={choice.item || ""}
-                              onChange={(e) =>
-                                updateModalFreebieChoice(
-                                  idx,
-                                  f.classification,
-                                  cIdx,
-                                  e.target.value
-                                )
-                              }
-                              className="flex-1 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 px-2 py-1 rounded-md focus:ring-2 focus:ring-yellow-400 outline-none"
-                            >
-                              <option value="">-- Select --</option>
-                              {inventory
-                                .filter(
-                                  (inv) =>
-                                    inv.item_classification === f.classification
-                                )
-                                .map((inv) => (
-                                  <option key={inv.id} value={inv.item_name}>
-                                    {inv.item_name}
-                                  </option>
-                                ))}
-                            </select>
-
-                            <input
-                              type="number"
-                              min="1"
-                              max={freebieSlots}
-                              value={choice.qty}
-                              onChange={(e) =>
-                                updateModalFreebieQuantity(
-                                  idx,
-                                  f.classification,
-                                  cIdx,
-                                  e.target.value
-                                )
-                              }
-                              className="w-20 mt-2 sm:mt-0 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 rounded-md px-2 py-1 focus:ring-2 focus:ring-yellow-400 outline-none"
-                            />
-
-                            <button
-                              type="button"
-                              onClick={() =>
-                                removeModalFreebieChoice(idx, f.classification, cIdx)
-                              }
-                              className="mt-2 sm:mt-0 text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-500 text-sm"
-                            >
-                              ✕
-                            </button>
-                          </div>
-                        ))}
-
-                        {remaining > 0 && (
-                          <button
-                            type="button"
-                            onClick={() => addModalFreebieChoice(idx, f.classification)}
-                            className="px-3 py-1 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 rounded-md text-sm transition-colors"
-                          >
-                            + Add {f.classification}
-                          </button>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
+              {it.type === "service" && (
+                <FreebieEditor
+                  freebies={it.freebies || []}
+                  slots={Number(it.qty) || 0}
+                  inventory={inventory}
+                  onAddChoice={(cls) => addModalFreebieChoice(idx, cls)}
+                  onChangeItem={(cls, cIdx, value) =>
+                    updateModalFreebieChoice(idx, cls, cIdx, value)
+                  }
+                  onChangeQty={(cls, cIdx, value) =>
+                    updateModalFreebieQuantity(idx, cls, cIdx, value)
+                  }
+                  onRemoveChoice={(cls, cIdx) =>
+                    removeModalFreebieChoice(idx, cls, cIdx)
+                  }
+                />
               )}
             </div>
           ))}
@@ -297,7 +282,7 @@ const EditSaleModal = ({
             <button
               type="button"
               onClick={() => setShowPicker(true)}
-              className="px-3 py-1.5 rounded-md bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium transition-colors"
+              className="px-4 min-h-11 rounded-md bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium transition-colors"
             >
               + Add Item or Service
             </button>
@@ -309,7 +294,7 @@ const EditSaleModal = ({
                     key={tab}
                     type="button"
                     onClick={() => setPickerTab(tab)}
-                    className={`flex-1 py-1.5 text-sm font-medium transition-colors ${
+                    className={`flex-1 min-h-11 text-sm font-medium transition-colors ${
                       pickerTab === tab
                         ? "bg-blue-600 text-white"
                         : "bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700"
@@ -320,38 +305,50 @@ const EditSaleModal = ({
                 ))}
               </div>
 
+              <SearchInput
+                value={pickerQuery}
+                onChange={setPickerQuery}
+                placeholder="Search to add…"
+                ariaLabel="Search items to add"
+                className="mb-3"
+              />
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-52 overflow-y-auto pr-1">
                 {pickerTab === "inventory"
-                  ? inventory.map((item) => (
+                  ? pickerItems.map((item) => (
                       <button
                         key={item.id}
                         type="button"
                         onClick={() => addInventory(item)}
-                        className="text-left border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 rounded-lg p-2 hover:border-blue-500 transition-colors"
+                        className="text-left border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 rounded-lg p-3 hover:border-blue-500 transition-colors"
                       >
                         <span className="block font-medium text-sm text-gray-900 dark:text-gray-100">
                           {item.item_name}
                         </span>
                         <span className="block text-xs text-gray-600 dark:text-gray-400">
-                          ₱{item.price} ·{" "}
-                          <span className={item.stock === 0 ? "text-red-600 font-semibold" : ""}>
+                          {formatCurrency(item.price)} ·{" "}
+                          <span
+                            className={
+                              item.stock === 0 ? "text-red-600 font-semibold" : ""
+                            }
+                          >
                             Stock: {item.stock}
                           </span>
                         </span>
                       </button>
                     ))
-                  : services.map((service) => (
+                  : pickerServices.map((service) => (
                       <button
                         key={service.id}
                         type="button"
                         onClick={() => addService(service)}
-                        className="text-left border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 rounded-lg p-2 hover:border-purple-500 transition-colors"
+                        className="text-left border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 rounded-lg p-3 hover:border-purple-500 transition-colors"
                       >
                         <span className="block font-medium text-sm text-gray-900 dark:text-gray-100">
                           {service.service_name}
                         </span>
                         <span className="block text-xs text-gray-600 dark:text-gray-400">
-                          ₱{service.price}
+                          {formatCurrency(service.price)}
                         </span>
                       </button>
                     ))}
@@ -359,7 +356,10 @@ const EditSaleModal = ({
 
               <button
                 type="button"
-                onClick={() => setShowPicker(false)}
+                onClick={() => {
+                  setShowPicker(false);
+                  setPickerQuery("");
+                }}
                 className="mt-3 text-sm text-gray-600 dark:text-gray-400 hover:underline"
               >
                 Cancel
@@ -367,31 +367,22 @@ const EditSaleModal = ({
             </div>
           )}
         </div>
+      </Modal>
 
-        <div className="mt-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-          <span className="font-semibold text-gray-800 dark:text-gray-100">
-            Total: ₱{total.toFixed(2)}
-          </span>
-          <div className="flex justify-end gap-3">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 rounded-md text-gray-700 dark:text-gray-200 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={handleSave}
-              disabled={isSaving}
-              className="px-4 py-2 rounded-md bg-green-600 hover:bg-green-700 disabled:opacity-60 disabled:cursor-not-allowed text-white font-medium transition-colors"
-            >
-              {isSaving ? "Saving…" : "Save Changes"}
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
+      <ConfirmDialog
+        open={freebieGaps !== null}
+        title="Unused freebie"
+        message="Are you sure you want to save this sale? One of your services has a freebie that is unused."
+        details={freebieGaps ? describeFreebieGaps(freebieGaps) : []}
+        confirmLabel="Save Anyway"
+        cancelLabel="Go Back"
+        onCancel={() => setFreebieGaps(null)}
+        onConfirm={() => {
+          setFreebieGaps(null);
+          commitSave();
+        }}
+      />
+    </>
   );
 };
 

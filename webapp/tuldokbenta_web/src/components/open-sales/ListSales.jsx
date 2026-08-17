@@ -1,9 +1,12 @@
-import React, { useState, useRef } from "react";
-import Invoice from "../shared/Invoice";
+import React, { useState, useMemo, useEffect } from "react";
 import { printInvoice } from "../../utils/printInvoice";
 import EditSaleModal from "../sales-modals/EditSaleModal";
 import PaySaleModal from "../sales-modals/PaySaleModal";
 import DeleteSaleModal from "../sales-modals/DeleteSaleModal";
+import SearchInput from "../shared/SearchInput";
+import Pagination from "../shared/Pagination";
+import { filterSales } from "../../utils/filterSales";
+import { formatCurrency, formatDateTime, saleTotal } from "../../utils/format";
 
 const ListSales = ({
   openSales,
@@ -18,7 +21,6 @@ const ListSales = ({
   const [editingSale, setEditingSale] = useState(null);
   const [showModal, setShowModal] = useState(false);
   const [payingSale, setPayingSale] = useState(null);
-  const [invoiceSale, setInvoiceSale] = useState(null);
   const [deletingSale, setDeletingSale] = useState(null);
 
   const [editError, setEditError] = useState(null);
@@ -26,23 +28,26 @@ const ListSales = ({
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [successMessage, setSuccessMessage] = useState("");
 
-  // 🧭 Pagination states
+  const [query, setQuery] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const salesPerPage = 10;
 
-  const invoiceRef = useRef();
+  const visibleSales = useMemo(
+    () => filterSales(openSales, query),
+    [openSales, query]
+  );
 
-  // 🧮 Pagination logic
+  // Narrowing the list can strand the viewer on a page that no longer exists.
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [query]);
+
+  const totalPages = Math.ceil(visibleSales.length / salesPerPage);
   const indexOfLastSale = currentPage * salesPerPage;
-  const indexOfFirstSale = indexOfLastSale - salesPerPage;
-  const currentSales = openSales.slice(indexOfFirstSale, indexOfLastSale);
-  const totalPages = Math.ceil(openSales.length / salesPerPage);
-
-  const handlePageChange = (pageNumber) => {
-    if (pageNumber >= 1 && pageNumber <= totalPages) {
-      setCurrentPage(pageNumber);
-    }
-  };
+  const currentSales = visibleSales.slice(
+    indexOfLastSale - salesPerPage,
+    indexOfLastSale
+  );
 
   const flashSuccess = (message) => {
     setSuccessMessage(message);
@@ -87,23 +92,33 @@ const ListSales = ({
 
   // 🧾 Render
   return (
-    <div className="mt-8 px-4 sm:px-6">
-      <h2 className="text-2xl font-semibold mb-6 text-gray-800 dark:text-gray-100">
-        Saved Open Sales
-      </h2>
+    <div className="mt-8">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-5">
+        <h2 className="text-xl sm:text-2xl font-semibold text-gray-800 dark:text-gray-100">
+          Saved Open Sales
+        </h2>
+        {openSales.length > 0 && (
+          <SearchInput
+            value={query}
+            onChange={setQuery}
+            placeholder="Search invoice or item…"
+            ariaLabel="Search open sales"
+            className="w-full sm:w-72"
+          />
+        )}
+      </div>
 
-      {openSales.length === 0 ? (
-        <p className="text-gray-500 dark:text-gray-400 text-center italic">
-          No open sales yet.
+      {visibleSales.length === 0 ? (
+        <p className="text-gray-500 dark:text-gray-400 text-center italic py-8">
+          {openSales.length === 0
+            ? "No open sales yet."
+            : `No open sales match “${query}”.`}
         </p>
       ) : (
         <>
           <div className="space-y-4">
             {currentSales.map((sale) => {
-              const total = sale.items.reduce(
-                (sum, it) => sum + Number(it.price) * (it.qty || 1),
-                0
-              );
+              const total = saleTotal(sale);
 
               return (
                 <div
@@ -121,14 +136,14 @@ const ListSales = ({
                     <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
                       Created at:{" "}
                       <span className="font-medium dark:text-gray-300">
-                        {new Date(sale.created_at).toLocaleString()}
+                        {formatDateTime(sale.created_at)}
                       </span>
                     </p>
 
                     <p className="text-gray-700 dark:text-gray-200 font-medium mt-1">
                       Total:{" "}
                       <span className="text-blue-600 dark:text-blue-400 font-semibold">
-                        ₱{total.toFixed(2)}
+                        {formatCurrency(total)}
                       </span>
                     </p>
 
@@ -185,58 +200,13 @@ const ListSales = ({
             })}
           </div>
 
-          {/* 🧭 Pagination controls */}
-          <div className="flex flex-col sm:flex-row justify-center items-center mt-6 gap-3 sm:gap-4">
-            {/* Previous Button */}
-            <button
-              onClick={() => handlePageChange(currentPage - 1)}
-              disabled={currentPage === 1}
-              className="px-4 py-2 text-sm font-medium rounded-lg 
-                        bg-gray-200 dark:bg-gray-700 
-                        text-gray-700 dark:text-gray-200 
-                        hover:bg-gray-300 dark:hover:bg-gray-600 
-                        disabled:opacity-50 disabled:cursor-not-allowed
-                        transition-colors min-w-[80px]"
-            >
-              Previous
-            </button>
-
-            {/* Page Numbers (Scrollable on Mobile) */}
-            <div
-              className="flex overflow-x-auto sm:overflow-visible max-w-full sm:max-w-none 
-                        scrollbar-hide gap-2 px-2 py-1 rounded-lg 
-                        bg-gray-100 dark:bg-gray-800 sm:bg-transparent sm:dark:bg-transparent"
-            >
-              {Array.from({ length: totalPages }, (_, i) => (
-                <button
-                  key={i + 1}
-                  onClick={() => handlePageChange(i + 1)}
-                  className={`px-3 py-2 text-sm font-semibold rounded-lg flex-shrink-0 transition-colors
-                    ${
-                      currentPage === i + 1
-                        ? "bg-blue-600 text-white dark:bg-blue-500"
-                        : "bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-300 dark:hover:bg-gray-600"
-                    }`}
-                >
-                  {i + 1}
-                </button>
-              ))}
-            </div>
-
-            {/* Next Button */}
-            <button
-              onClick={() => handlePageChange(currentPage + 1)}
-              disabled={currentPage === totalPages}
-              className="px-4 py-2 text-sm font-medium rounded-lg 
-                        bg-gray-200 dark:bg-gray-700 
-                        text-gray-700 dark:text-gray-200 
-                        hover:bg-gray-300 dark:hover:bg-gray-600 
-                        disabled:opacity-50 disabled:cursor-not-allowed
-                        transition-colors min-w-[80px]"
-            >
-              Next
-            </button>
-          </div>
+          <Pagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            onPageChange={setCurrentPage}
+            totalItems={visibleSales.length}
+            pageSize={salesPerPage}
+          />
         </>
       )}
 
@@ -311,11 +281,6 @@ const ListSales = ({
           </div>
         </div>
       )}
-
-      {/* HIDDEN PRINTABLE INVOICE */}
-      <div ref={invoiceRef} style={{ display: "none" }}>
-        {invoiceSale && <Invoice sale={invoiceSale} />}
-      </div>
     </div>
   );
 };

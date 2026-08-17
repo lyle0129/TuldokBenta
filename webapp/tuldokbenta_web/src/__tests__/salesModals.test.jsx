@@ -103,6 +103,104 @@ describe("EditSaleModal", () => {
     expect(onSave).not.toHaveBeenCalled();
     expect(screen.getByRole("alert")).toHaveTextContent(/at least one line/i);
   });
+
+  // -------------------------------------------------------------------------
+  // Unused-freebie guard
+  // -------------------------------------------------------------------------
+  const saleWithUnclaimedFreebie = {
+    ...mockSale,
+    items: [
+      {
+        type: "service",
+        service_name: "Full Service",
+        qty: 1,
+        price: 180,
+        freebies: [{ classification: "Soap", choices: [] }],
+      },
+    ],
+  };
+
+  it("saves straight away when every freebie is claimed", () => {
+    const onSave = vi.fn();
+    const sale = {
+      ...mockSale,
+      items: [
+        {
+          type: "service",
+          service_name: "Full Service",
+          qty: 1,
+          price: 180,
+          freebies: [
+            { classification: "Soap", choices: [{ item: "Detergent", qty: 1 }] },
+          ],
+        },
+      ],
+    };
+    render(<EditSaleModal {...makeProps({ sale, onSave })} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /save changes/i }));
+    expect(onSave).toHaveBeenCalledTimes(1);
+  });
+
+  it("warns instead of saving when a service freebie is unclaimed", () => {
+    const onSave = vi.fn();
+    render(
+      <EditSaleModal {...makeProps({ sale: saleWithUnclaimedFreebie, onSave })} />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /save changes/i }));
+
+    expect(onSave).not.toHaveBeenCalled();
+    expect(screen.getByText(/freebie that is unused/i)).toBeInTheDocument();
+    expect(screen.getByText(/Full Service — 1 Soap not claimed/)).toBeInTheDocument();
+  });
+
+  it("saves after the warning is confirmed", () => {
+    const onSave = vi.fn();
+    render(
+      <EditSaleModal {...makeProps({ sale: saleWithUnclaimedFreebie, onSave })} />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /save changes/i }));
+    fireEvent.click(screen.getByRole("button", { name: /save anyway/i }));
+
+    expect(onSave).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not save when the warning is dismissed", () => {
+    const onSave = vi.fn();
+    render(
+      <EditSaleModal {...makeProps({ sale: saleWithUnclaimedFreebie, onSave })} />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /save changes/i }));
+    fireEvent.click(screen.getByRole("button", { name: /go back/i }));
+
+    expect(onSave).not.toHaveBeenCalled();
+    expect(screen.queryByText(/freebie that is unused/i)).not.toBeInTheDocument();
+  });
+
+  it("warns when a freebie row was added but left on '-- Select --'", () => {
+    const onSave = vi.fn();
+    const sale = {
+      ...mockSale,
+      items: [
+        {
+          type: "service",
+          service_name: "Full Service",
+          qty: 1,
+          price: 180,
+          freebies: [{ classification: "Soap", choices: [{ item: "", qty: 1 }] }],
+        },
+      ],
+    };
+    render(<EditSaleModal {...makeProps({ sale, onSave })} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /save changes/i }));
+
+    expect(onSave).not.toHaveBeenCalled();
+    expect(screen.getByText(/has no item chosen/i)).toBeInTheDocument();
+  });
 });
 
 // ---------------------------------------------------------------------------

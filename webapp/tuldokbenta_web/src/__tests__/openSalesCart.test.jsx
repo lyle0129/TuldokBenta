@@ -1,0 +1,288 @@
+/**
+ * Feature: open/closed sales UX rework
+ * Subject: components/open-sales/{CatalogGrid,CartBar,CartModal}.jsx
+ *
+ * The cart moved out of a desktop third column into a sticky bar plus a
+ * full-screen sheet, because on a phone the old layout put the cart two
+ * screens below the catalog.
+ */
+import React from "react";
+import { render, screen, fireEvent } from "@testing-library/react";
+import { describe, it, expect, vi } from "vitest";
+import CatalogGrid from "../components/open-sales/CatalogGrid";
+import CartBar from "../components/open-sales/CartBar";
+import CartModal from "../components/open-sales/CartModal";
+
+const inventory = [
+  { id: 1, item_name: "Ariel", item_classification: "Detergent", price: 50, stock: 10 },
+  { id: 2, item_name: "Downy", item_classification: "Fabcon", price: 30, stock: 0 },
+];
+
+const services = [
+  { id: 9, service_name: "Full Service", price: 180, freebies: ["Detergent"] },
+];
+
+// ---------------------------------------------------------------------------
+// CatalogGrid
+// ---------------------------------------------------------------------------
+describe("CatalogGrid", () => {
+  it("shows items and services together by default", () => {
+    render(
+      <CatalogGrid
+        inventory={inventory}
+        services={services}
+        onAddItem={vi.fn()}
+        onAddService={vi.fn()}
+      />
+    );
+    expect(screen.getByText("Ariel")).toBeInTheDocument();
+    expect(screen.getByText("Full Service")).toBeInTheDocument();
+  });
+
+  it("narrows the catalog by name", () => {
+    render(
+      <CatalogGrid
+        inventory={inventory}
+        services={services}
+        onAddItem={vi.fn()}
+        onAddService={vi.fn()}
+      />
+    );
+
+    fireEvent.change(screen.getByLabelText(/search catalog/i), {
+      target: { value: "ariel" },
+    });
+
+    expect(screen.getByText("Ariel")).toBeInTheDocument();
+    expect(screen.queryByText("Downy")).not.toBeInTheDocument();
+    expect(screen.queryByText("Full Service")).not.toBeInTheDocument();
+  });
+
+  it("narrows the catalog by classification", () => {
+    render(
+      <CatalogGrid
+        inventory={inventory}
+        services={services}
+        onAddItem={vi.fn()}
+        onAddService={vi.fn()}
+      />
+    );
+
+    fireEvent.change(screen.getByLabelText(/search catalog/i), {
+      target: { value: "fabcon" },
+    });
+    expect(screen.getByText("Downy")).toBeInTheDocument();
+    expect(screen.queryByText("Ariel")).not.toBeInTheDocument();
+  });
+
+  it("filters to services only", () => {
+    render(
+      <CatalogGrid
+        inventory={inventory}
+        services={services}
+        onAddItem={vi.fn()}
+        onAddService={vi.fn()}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("tab", { name: "Services" }));
+    expect(screen.getByText("Full Service")).toBeInTheDocument();
+    expect(screen.queryByText("Ariel")).not.toBeInTheDocument();
+  });
+
+  it("marks an out-of-stock item without hiding it", () => {
+    render(
+      <CatalogGrid
+        inventory={inventory}
+        services={services}
+        onAddItem={vi.fn()}
+        onAddService={vi.fn()}
+      />
+    );
+    expect(screen.getByText("Out of stock")).toBeInTheDocument();
+  });
+
+  it("adds the tapped item and service", () => {
+    const onAddItem = vi.fn();
+    const onAddService = vi.fn();
+    render(
+      <CatalogGrid
+        inventory={inventory}
+        services={services}
+        onAddItem={onAddItem}
+        onAddService={onAddService}
+      />
+    );
+
+    fireEvent.click(screen.getByText("Ariel"));
+    expect(onAddItem).toHaveBeenCalledWith(inventory[0]);
+
+    fireEvent.click(screen.getByText("Full Service"));
+    expect(onAddService).toHaveBeenCalledWith(services[0]);
+  });
+
+  it("says so when nothing matches", () => {
+    render(
+      <CatalogGrid
+        inventory={inventory}
+        services={services}
+        onAddItem={vi.fn()}
+        onAddService={vi.fn()}
+      />
+    );
+    fireEvent.change(screen.getByLabelText(/search catalog/i), {
+      target: { value: "zzz" },
+    });
+    expect(screen.getByText(/Nothing matches/)).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// CartBar
+// ---------------------------------------------------------------------------
+describe("CartBar", () => {
+  it("stays hidden while the cart is empty", () => {
+    const { container } = render(<CartBar cart={[]} onOpen={vi.fn()} />);
+    expect(container.firstChild).toBeNull();
+  });
+
+  it("counts units rather than lines", () => {
+    const cart = [
+      { type: "inventory", id: 1, name: "Ariel", price: 50, quantity: 3 },
+      { type: "service", id: 9, name: "Full Service", price: 180, quantity: 1 },
+    ];
+    render(<CartBar cart={cart} onOpen={vi.fn()} />);
+
+    expect(screen.getByText("4 items")).toBeInTheDocument();
+    expect(screen.getByText("₱330.00")).toBeInTheDocument();
+  });
+
+  it("uses the singular for one unit", () => {
+    render(
+      <CartBar
+        cart={[{ type: "inventory", id: 1, name: "Ariel", price: 50, quantity: 1 }]}
+        onOpen={vi.fn()}
+      />
+    );
+    expect(screen.getByText("1 item")).toBeInTheDocument();
+  });
+
+  it("opens the cart when tapped", () => {
+    const onOpen = vi.fn();
+    render(
+      <CartBar
+        cart={[{ type: "inventory", id: 1, name: "Ariel", price: 50, quantity: 1 }]}
+        onOpen={onOpen}
+      />
+    );
+    fireEvent.click(screen.getByRole("button", { name: /view cart/i }));
+    expect(onOpen).toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// CartModal
+// ---------------------------------------------------------------------------
+describe("CartModal", () => {
+  const serviceLine = {
+    type: "service",
+    id: 9,
+    name: "Full Service",
+    price: 180,
+    quantity: 1,
+    freebies: [{ classification: "Detergent", choices: [{ item: "", qty: 1 }] }],
+  };
+
+  const makeProps = (overrides = {}) => ({
+    open: true,
+    onClose: vi.fn(),
+    cart: [serviceLine],
+    inventory,
+    onUpdateQuantity: vi.fn(),
+    onRemoveItem: vi.fn(),
+    onAddFreebieChoice: vi.fn(),
+    onChangeFreebieItem: vi.fn(),
+    onChangeFreebieQty: vi.fn(),
+    onRemoveFreebieChoice: vi.fn(),
+    onCheckout: vi.fn(),
+    ...overrides,
+  });
+
+  it("renders nothing while closed", () => {
+    const { container } = render(<CartModal {...makeProps({ open: false })} />);
+    expect(container.firstChild).toBeNull();
+  });
+
+  it("is a dialog, so assistive tech announces it", () => {
+    render(<CartModal {...makeProps()} />);
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
+
+  it("steps quantity up and down", () => {
+    const onUpdateQuantity = vi.fn();
+    render(<CartModal {...makeProps({ onUpdateQuantity })} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /increase quantity/i }));
+    expect(onUpdateQuantity).toHaveBeenCalledWith(9, "service", 1);
+
+    fireEvent.click(screen.getByRole("button", { name: /decrease quantity/i }));
+    expect(onUpdateQuantity).toHaveBeenCalledWith(9, "service", -1);
+  });
+
+  it("removes a line", () => {
+    const onRemoveItem = vi.fn();
+    render(<CartModal {...makeProps({ onRemoveItem })} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /^remove$/i }));
+    expect(onRemoveItem).toHaveBeenCalledWith(9, "service");
+  });
+
+  it("offers only inventory of the freebie's classification", () => {
+    render(<CartModal {...makeProps()} />);
+
+    const select = screen.getByLabelText(/free detergent item/i);
+    const options = [...select.querySelectorAll("option")].map((o) => o.value);
+    // "Downy" is Fabcon, so it must not be offered for a Detergent freebie.
+    expect(options).toEqual(["", "Ariel"]);
+  });
+
+  it("reports how many freebies are still unclaimed", () => {
+    const cart = [
+      {
+        ...serviceLine,
+        quantity: 3,
+        freebies: [{ classification: "Detergent", choices: [{ item: "Ariel", qty: 1 }] }],
+      },
+    ];
+    render(<CartModal {...makeProps({ cart })} />);
+    expect(screen.getByText("2 left to claim")).toBeInTheDocument();
+  });
+
+  it("clamps a cleared freebie quantity to 1 rather than 0", () => {
+    const onChangeFreebieQty = vi.fn();
+    render(<CartModal {...makeProps({ onChangeFreebieQty })} />);
+
+    fireEvent.change(screen.getByLabelText(/free detergent quantity/i), {
+      target: { value: "" },
+    });
+    expect(onChangeFreebieQty).toHaveBeenCalledWith(9, "Detergent", 0, 1);
+  });
+
+  it("disables checkout on an empty cart", () => {
+    render(<CartModal {...makeProps({ cart: [] })} />);
+    expect(screen.getByRole("button", { name: /checkout/i })).toBeDisabled();
+  });
+
+  it("surfaces a server error instead of an alert", () => {
+    render(<CartModal {...makeProps({ errorMessage: "Not enough stock for Ariel" })} />);
+    expect(screen.getByRole("alert")).toHaveTextContent(/not enough stock/i);
+  });
+
+  it("closes on Escape", () => {
+    const onClose = vi.fn();
+    render(<CartModal {...makeProps({ onClose })} />);
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(onClose).toHaveBeenCalled();
+  });
+});
