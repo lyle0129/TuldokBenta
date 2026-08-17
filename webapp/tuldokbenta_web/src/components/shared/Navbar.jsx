@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { Link, NavLink, useNavigate } from "react-router-dom";
+import { clearQueryCache } from "../../queryClient";
 
 const Navbar = () => {
   const navigate = useNavigate();
@@ -21,6 +22,10 @@ const Navbar = () => {
 
   const handleLogout = () => {
     localStorage.removeItem("authenticated");
+    // The reload below used to be enough to wipe every list from memory. Now
+    // that the query cache is persisted, sales data would outlive the session
+    // in localStorage unless it is dropped explicitly.
+    clearQueryCache();
     navigate("/");
     window.location.reload();
   };

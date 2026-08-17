@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
-import { useSales } from "../hooks/useSales";
+import { useSaleMutations } from "../hooks/useSales";
 import { useCart } from "../hooks/useCart";
 import { useOfflineCatalog } from "../hooks/useOfflineCatalog";
 import CatalogGrid from "../components/open-sales/CatalogGrid";
@@ -25,7 +25,9 @@ const OpenSalesOffline = () => {
   const [status, setStatus] = useState(null); // { tone: "ok" | "error", text }
   const [query, setQuery] = useState("");
 
-  const { createOpenSale } = useSales();
+  // Mutations only. useSales() used to drag three list fetches onto a page that
+  // renders none of them — the last thing a flaky connection needs.
+  const { createOpenSale } = useSaleMutations();
 
   // Real inventory and services, cached from the server. Replaces a hardcoded
   // list that went stale as soon as anyone edited Inventory.

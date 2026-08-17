@@ -12,6 +12,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import DayPicker from "../components/closed-sales/DayPicker";
 import ListClosedSales from "../components/closed-sales/ListClosedSales";
 import { todayISODate, shiftDay } from "../utils/dateRange";
+import { renderWithQuery } from "./utils/renderWithQuery.jsx";
 
 const today = todayISODate();
 const yesterday = shiftDay(today, -1);
@@ -156,7 +157,7 @@ describe("ClosedSales page", () => {
 
   it("asks for today's range on first render", async () => {
     const { default: ClosedSales } = await import("../pages/ClosedSales");
-    render(<ClosedSales />);
+    renderWithQuery(<ClosedSales />);
 
     await waitFor(() => expect(requestedUrls.length).toBeGreaterThan(0));
     expect(requestedUrls[0]).toContain("/closed-sales?lowdate=");
@@ -169,7 +170,7 @@ describe("ClosedSales page", () => {
 
   it("requests the previous day when the back arrow is pressed", async () => {
     const { default: ClosedSales } = await import("../pages/ClosedSales");
-    render(<ClosedSales />);
+    renderWithQuery(<ClosedSales />);
 
     await waitFor(() => expect(requestedUrls.length).toBeGreaterThan(0));
     const before = requestedUrls.length;

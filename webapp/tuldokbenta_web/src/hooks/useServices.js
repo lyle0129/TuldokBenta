@@ -1,78 +1,83 @@
 // hooks/useServices.js
-import { useState, useCallback } from "react";
-import { API_BASE_URL } from "../api";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { apiRequest } from "../api";
+import { queryKeys, staleTimes } from "../queryClient";
 
+/**
+ * The service list, shared by every page that mounts this hook.
+ *
+ * Services change rarely, so this carries the longest staleTime in the app —
+ * the Open Sales catalog can be rebuilt from cache on every visit.
+ */
 export const useServices = () => {
-  const [services, setServices] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const queryClient = useQueryClient();
 
-  // ---------- FETCH ---------- //
-  const fetchServices = useCallback(async () => {
-    try {
-      const res = await fetch(`${API_BASE_URL}/services`);
-      const data = await res.json();
-      setServices(data);
-    } catch (error) {
-      console.error("Error fetching services:", error);
-    }
-  }, []);
+  const {
+    data: services = [],
+    isLoading,
+    isFetching,
+    error,
+  } = useQuery({
+    queryKey: queryKeys.services,
+    queryFn: ({ signal }) => apiRequest("/services", { signal }),
+    staleTime: staleTimes.services,
+  });
 
-  const loadServices = useCallback(async () => {
-    setIsLoading(true);
-    try {
-      await fetchServices();
-    } finally {
-      setIsLoading(false);
-    }
-  }, [fetchServices]);
+  const invalidate = () =>
+    queryClient.invalidateQueries({ queryKey: queryKeys.services });
 
-  // ---------- MUTATIONS ---------- //
+  const createMutation = useMutation({
+    mutationFn: (service) =>
+      apiRequest("/services", { method: "POST", body: service }),
+    onSuccess: invalidate,
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, updates }) =>
+      apiRequest(`/services/${id}`, { method: "PUT", body: updates }),
+    onSuccess: invalidate,
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id) => apiRequest(`/services/${id}`, { method: "DELETE" }),
+    onSuccess: invalidate,
+  });
+
   const createService = async (service) => {
     try {
-      const res = await fetch(`${API_BASE_URL}/services`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(service),
-      });
-      if (!res.ok) throw new Error("Failed to create service");
-      await loadServices();
+      await createMutation.mutateAsync(service);
       return true;
-    } catch (error) {
-      console.error("Error creating service:", error);
+    } catch (err) {
+      console.error("Error creating service:", err);
       return false;
     }
   };
 
   const updateService = async (id, updates) => {
     try {
-      const res = await fetch(`${API_BASE_URL}/services/${id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(updates),
-      });
-      if (!res.ok) throw new Error("Failed to update service");
-      await loadServices();
+      await updateMutation.mutateAsync({ id, updates });
       return true;
-    } catch (error) {
-      console.error("Error updating service:", error);
+    } catch (err) {
+      console.error("Error updating service:", err);
       return false;
     }
   };
 
   const deleteService = async (id) => {
     try {
-      const res = await fetch(`${API_BASE_URL}/services/${id}`, { method: "DELETE" });
-      if (!res.ok) throw new Error("Failed to delete service");
-      await loadServices();
-    } catch (error) {
-      console.error("Error deleting service:", error);
+      await deleteMutation.mutateAsync(id);
+      return true;
+    } catch (err) {
+      console.error("Error deleting service:", err);
+      return false;
     }
   };
 
   return {
     services,
     isLoading,
-    loadServices,
+    isFetching,
+    error: error?.message ?? null,
     createService,
     updateService,
     deleteService,

@@ -1,205 +1,166 @@
 // hooks/useSales.js
-import { useState, useCallback } from "react";
-import { API_BASE_URL } from "../api";
-import { dayRange, todayISODate } from "../utils/dateRange";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { apiRequest } from "../api";
+import { queryKeys, staleTimes } from "../queryClient";
+import { dayRange } from "../utils/dateRange";
 
-export const useSales = () => {
-  const [openSales, setOpenSales] = useState([]);
-  const [closedSales, setClosedSales] = useState([]);
-  const [closedSalesbyDate, setClosedSalesbyDate] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
+/**
+ * Sales reads, split by what each page actually renders.
+ *
+ * The single useSales() this replaced fetched open sales, the whole closed-sales
+ * table and today's closed sales together on every call, so pages paid for lists
+ * they never showed — and every mutation re-ran all three.
+ */
 
-  // ---------- FETCHERS ---------- //
-  const fetchOpenSales = useCallback(async () => {
-    try {
-      const res = await fetch(`${API_BASE_URL}/open-sales`);
-      const data = await res.json();
-      setOpenSales(data);
-    } catch (error) {
-      console.error("Error fetching open sales:", error);
-    }
-  }, []);
-
-  const fetchClosedSales = useCallback(async () => {
-    try {
-      const res = await fetch(`${API_BASE_URL}/closed-sales`);
-      const data = await res.json();
-      setClosedSales(data);
-    } catch (error) {
-      console.error("Error fetching closed sales:", error);
-    }
-  }, []);
-
-  // ✅ Date-filtered versions (for reports)
-  const fetchOpenSalesByDate = useCallback(async (lowdate, highdate) => {
-    try {
-      const res = await fetch(`${API_BASE_URL}/open-sales?lowdate=${lowdate}&highdate=${highdate}`);
-      const data = await res.json();
-      return data;
-    } catch (error) {
-      console.error("Error fetching open sales by date:", error);
-      return [];
-    }
-  }, []);
-
-  const fetchClosedSalesByDate = useCallback(async (lowdate, highdate) => {
-    try {
-      const res = await fetch(
-        `${API_BASE_URL}/closed-sales?lowdate=${lowdate}&highdate=${highdate}`
-      );
-      const data = await res.json();
-      setClosedSalesbyDate(data); // ✅ update the table with filtered data
-    } catch (error) {
-      console.error("Error fetching closed sales by date:", error);
-    }
-  }, []);
-  
-
-  /** Loads one calendar day of closed sales into `closedSalesbyDate`. */
-  const loadClosedSalesForDay = useCallback(
-    async (isoDate) => {
-      setIsLoading(true);
-      try {
-        const { lowdate, highdate } = dayRange(isoDate);
-        await fetchClosedSalesByDate(lowdate, highdate);
-      } finally {
-        setIsLoading(false);
-      }
-    },
-    [fetchClosedSalesByDate]
-  );
-
-  const loadSales = useCallback(async () => {
-    setIsLoading(true);
-    try {
-      const { lowdate, highdate } = dayRange(todayISODate());
-
-      await Promise.all([
-        fetchOpenSales(),
-        fetchClosedSales(),
-        fetchClosedSalesByDate(lowdate, highdate),
-      ]);
-    } catch (error) {
-      console.error("Error loading sales:", error);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [fetchOpenSales, fetchClosedSales, fetchClosedSalesByDate]);
-
-  // ---------- MUTATIONS ---------- //
-
-  /**
-   * Pulls the server's explanation out of a failed response.
-   *
-   * The backend answers oversell with 400 {"message":"Not enough stock for X"};
-   * that used to be discarded, so the edit modal just sat there with no
-   * feedback and the sale looked like it had saved.
-   */
-  const errorMessageFrom = async (res, fallback) => {
-    try {
-      const body = await res.json();
-      return body?.message || fallback;
-    } catch {
-      return fallback;
-    }
-  };
-
-  const createOpenSale = async (sale) => {
-    try {
-      const res = await fetch(`${API_BASE_URL}/open-sales`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(sale),
-      });
-      if (!res.ok) {
-        return { ok: false, message: await errorMessageFrom(res, "Failed to create open sale") };
-      }
-      await loadSales();
-      return { ok: true, message: null };
-    } catch (error) {
-      console.error("Error creating open sale:", error);
-      return { ok: false, message: "Could not reach the server. Check your connection." };
-    }
-  };
-
-  const updateOpenSale = async (id, sale) => {
-    try {
-      const res = await fetch(`${API_BASE_URL}/open-sales/${id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        // Only `items` is read server-side, but sending the whole sale keeps
-        // this callable with a row straight out of the list.
-        body: JSON.stringify(sale),
-      });
-      if (!res.ok) {
-        return { ok: false, message: await errorMessageFrom(res, "Failed to update open sale") };
-      }
-      await loadSales();
-      return { ok: true, message: null };
-    } catch (error) {
-      console.error("Error updating open sale:", error);
-      return { ok: false, message: "Could not reach the server. Check your connection." };
-    }
-  };
-
-  const deleteOpenSale = async (id) => {
-    try {
-      const res = await fetch(`${API_BASE_URL}/open-sales/${id}`, { method: "DELETE" });
-      if (!res.ok) throw new Error("Failed to delete open sale");
-      await loadSales();
-    } catch (error) {
-      console.error("Error deleting open sale:", error);
-    }
-  };
-
-  const paySale = async (id, paid_using) => {
-    try {
-      const res = await fetch(`${API_BASE_URL}/pay-sale/${id}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ paid_using }),
-      });
-      if (!res.ok) throw new Error("Failed to pay sale");
-      await loadSales();
-    } catch (error) {
-      console.error("Error paying sale:", error);
-    }
-  };
-
-  const revertSale = async (id) => {
-    try {
-      const res = await fetch(`${API_BASE_URL}/revert-sale/${id}`, { method: "POST" });
-      if (!res.ok) throw new Error("Failed to revert sale");
-      await loadSales();
-    } catch (error) {
-      console.error("Error reverting sale:", error);
-    }
-  };
-
-  const deleteClosedSale = async (id) => {
-    try {
-      const res = await fetch(`${API_BASE_URL}/closed-sales/${id}`, { method: "DELETE" });
-      if (!res.ok) throw new Error("Failed to delete closed sale");
-      await loadSales();
-    } catch (error) {
-      console.error("Error deleting closed sale:", error);
-    }
-  };
+/** Open sales. Read by the Open Sales page and Reporting. */
+export const useOpenSales = () => {
+  const { data, isLoading, isFetching, error } = useQuery({
+    queryKey: queryKeys.openSales,
+    queryFn: ({ signal }) => apiRequest("/open-sales", { signal }),
+    staleTime: staleTimes.sales,
+  });
 
   return {
-    openSales,
-    closedSales,
-    closedSalesbyDate,
+    openSales: data ?? [],
     isLoading,
-    loadSales,
-    loadClosedSalesForDay,
-    createOpenSale,
-    updateOpenSale,   // ✅ added update here
-    fetchOpenSalesByDate,   // ✅ new
-    fetchClosedSalesByDate, // ✅ new
-    deleteOpenSale,
-    paySale,
-    revertSale,
-    deleteClosedSale,
+    isFetching,
+    error: error?.message ?? null,
+  };
+};
+
+/**
+ * Every closed sale. Needed by Reporting (which filters client-side) and by the
+ * Open Sales invoice-number generator, which needs the global maximum.
+ *
+ * Note this endpoint is unbounded — see the follow-up note in the plan. Caching
+ * stops the repeat downloads but not the growth of the first one.
+ */
+export const useClosedSales = () => {
+  const { data, isLoading, isFetching, error } = useQuery({
+    queryKey: queryKeys.closedSalesAll,
+    queryFn: ({ signal }) => apiRequest("/closed-sales", { signal }),
+    staleTime: staleTimes.sales,
+  });
+
+  return {
+    closedSales: data ?? [],
+    isLoading,
+    isFetching,
+    error: error?.message ?? null,
+  };
+};
+
+/**
+ * One calendar day of closed sales, cached per day.
+ *
+ * Keying by the day is what fixes two things at once: revisiting a day is
+ * instant, and a slow response for a day the user has already navigated away
+ * from can no longer overwrite the day on screen.
+ *
+ * @param {string} isoDate "YYYY-MM-DD"
+ */
+export const useClosedSalesForDay = (isoDate) => {
+  const { data, isLoading, isFetching, error } = useQuery({
+    queryKey: queryKeys.closedSalesDay(isoDate),
+    queryFn: ({ signal }) => {
+      const { lowdate, highdate } = dayRange(isoDate);
+      return apiRequest(
+        `/closed-sales?lowdate=${lowdate}&highdate=${highdate}`,
+        { signal }
+      );
+    },
+    staleTime: staleTimes.sales,
+    enabled: Boolean(isoDate),
+  });
+
+  return {
+    closedSalesbyDate: data ?? [],
+    isLoading,
+    isFetching,
+    error: error?.message ?? null,
+  };
+};
+
+/**
+ * The six sale mutations, each invalidating exactly what the server changed.
+ *
+ * The invalidation map is taken from the controllers, not guessed:
+ * creating, editing and deleting an open sale move stock in the same
+ * transaction (openSalesController.applyStockAndSale), while pay and revert
+ * only move the row between tables and leave stock alone.
+ *
+ * Every mutation resolves to { ok, message } rather than throwing, because that
+ * is the contract the cart, edit modal and offline queue already report from.
+ */
+export const useSaleMutations = () => {
+  const queryClient = useQueryClient();
+
+  const invalidate = (keys) =>
+    Promise.all(
+      keys.map((queryKey) => queryClient.invalidateQueries({ queryKey }))
+    );
+
+  const openSalesAndStock = () =>
+    invalidate([queryKeys.openSales, queryKeys.inventory]);
+
+  /** Moves a row between open and closed; stock was settled when it opened. */
+  const bothSaleTables = () =>
+    invalidate([queryKeys.openSales, queryKeys.closedSales]);
+
+  const run = async (mutation, args, fallbackMessage) => {
+    try {
+      await mutation.mutateAsync(args);
+      return { ok: true, message: null };
+    } catch (err) {
+      console.error(fallbackMessage, err);
+      return { ok: false, message: err?.message || fallbackMessage };
+    }
+  };
+
+  const createMutation = useMutation({
+    mutationFn: (sale) => apiRequest("/open-sales", { method: "POST", body: sale }),
+    onSuccess: openSalesAndStock,
+  });
+
+  const updateMutation = useMutation({
+    // Only `items` is read server-side, but sending the whole sale keeps this
+    // callable with a row straight out of the list.
+    mutationFn: ({ id, sale }) =>
+      apiRequest(`/open-sales/${id}`, { method: "PUT", body: sale }),
+    onSuccess: openSalesAndStock,
+  });
+
+  const deleteOpenMutation = useMutation({
+    mutationFn: (id) => apiRequest(`/open-sales/${id}`, { method: "DELETE" }),
+    onSuccess: openSalesAndStock,
+  });
+
+  const payMutation = useMutation({
+    mutationFn: ({ id, paid_using }) =>
+      apiRequest(`/pay-sale/${id}`, { method: "POST", body: { paid_using } }),
+    onSuccess: bothSaleTables,
+  });
+
+  const revertMutation = useMutation({
+    mutationFn: (id) => apiRequest(`/revert-sale/${id}`, { method: "POST" }),
+    onSuccess: bothSaleTables,
+  });
+
+  const deleteClosedMutation = useMutation({
+    mutationFn: (id) => apiRequest(`/closed-sales/${id}`, { method: "DELETE" }),
+    onSuccess: () => invalidate([queryKeys.closedSales]),
+  });
+
+  return {
+    createOpenSale: (sale) => run(createMutation, sale, "Failed to create open sale"),
+    updateOpenSale: (id, sale) =>
+      run(updateMutation, { id, sale }, "Failed to update open sale"),
+    deleteOpenSale: (id) =>
+      run(deleteOpenMutation, id, "Failed to delete open sale"),
+    paySale: (id, paid_using) =>
+      run(payMutation, { id, paid_using }, "Failed to pay sale"),
+    revertSale: (id) => run(revertMutation, id, "Failed to revert sale"),
+    deleteClosedSale: (id) =>
+      run(deleteClosedMutation, id, "Failed to delete closed sale"),
   };
 };

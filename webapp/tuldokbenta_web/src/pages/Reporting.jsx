@@ -1,5 +1,5 @@
-import { useState, useEffect, useMemo } from "react";
-import { useSales } from "../hooks/useSales";
+import { useState, useMemo } from "react";
+import { useOpenSales, useClosedSales } from "../hooks/useSales";
 import AdvancedFilters from "../components/reporting/AdvancedFilters";
 import EnhancedSalesList from "../components/reporting/EnhancedSalesList";
 import TodaysSummary from "../components/reporting/TodaysSummary";
@@ -9,7 +9,18 @@ import SalesSummary from "../components/reporting/SalesSummary";
 import ClosedSalesTotal from "../components/reporting/ClosedSalesTotal";
 
 export default function Reporting() {
-  const { openSales, closedSales, loadSales, isLoading } = useSales();
+  // Both lists come from the same cache the Open Sales page fills, so arriving
+  // here from a sale usually costs nothing.
+  const { openSales, isLoading: openLoading, error: openError } = useOpenSales();
+  const {
+    closedSales,
+    isLoading: closedLoading,
+    error: closedError,
+  } = useClosedSales();
+
+  const isLoading = openLoading || closedLoading;
+  const error = openError || closedError;
+
   const [filters, setFilters] = useState({
     invoiceNumber: '',
     serviceName: '',
@@ -19,8 +30,6 @@ export default function Reporting() {
     dateRange: { from: '', to: '' }
   });
   const [activeTab, setActiveTab] = useState('today'); // 'today', 'overview', 'open', 'closed'
-
-  useEffect(() => { loadSales(); }, [loadSales]);
 
   // Get today's date boundaries
   const today = new Date();
@@ -184,6 +193,12 @@ export default function Reporting() {
       {isLoading ? (
         <div className="flex justify-center items-center h-64">
           <div className="text-lg text-gray-600 dark:text-gray-400">Loading sales data...</div>
+        </div>
+      ) : error ? (
+        // Previously a failed load rendered a dashboard of zeroes, which reads
+        // as "no sales today" rather than "the data never arrived".
+        <div role="alert" className="flex justify-center items-center h-64">
+          <div className="text-lg text-red-700 dark:text-red-300">{error}</div>
         </div>
       ) : (
         <>

@@ -2,7 +2,11 @@
 import { useState, useEffect } from "react";
 import { useInventory } from "../hooks/useInventory";
 import { useServices } from "../hooks/useServices";
-import { useSales } from "../hooks/useSales";
+import {
+  useOpenSales,
+  useClosedSales,
+  useSaleMutations,
+} from "../hooks/useSales";
 import { useCart } from "../hooks/useCart";
 import ListSales from "../components/open-sales/ListSales";
 import CatalogGrid from "../components/open-sales/CatalogGrid";
@@ -14,17 +18,14 @@ import { freebieGapsFromCart, describeFreebieGaps } from "../utils/freebies";
 import { writeJSON, OFFLINE_CATALOG_KEY } from "../utils/storage";
 
 const OpenSales = () => {
-  const { inventory, loadInventory } = useInventory();
-  const { services, loadServices } = useServices();
-  const {
-    openSales,
-    closedSales,
-    loadSales,
-    createOpenSale,
-    updateOpenSale,
-    deleteOpenSale,
-    paySale,
-  } = useSales();
+  const { inventory } = useInventory();
+  const { services } = useServices();
+  const { openSales } = useOpenSales();
+  // Only for the invoice-number maximum below; the list itself isn't rendered
+  // here. Reporting reads the same cache entry.
+  const { closedSales } = useClosedSales();
+  const { createOpenSale, updateOpenSale, deleteOpenSale, paySale } =
+    useSaleMutations();
 
   const [nextInvoice, setNextInvoice] = useState("INV-0001");
   const [showCart, setShowCart] = useState(false);
@@ -44,12 +45,6 @@ const OpenSales = () => {
     clearCart,
     removeItem,
   } = useCart();
-
-  useEffect(() => {
-    loadInventory();
-    loadServices();
-    loadSales();
-  }, [loadInventory, loadServices, loadSales]);
 
   // 🔢 Generate next invoice number across both open + closed
   useEffect(() => {
@@ -88,9 +83,10 @@ const OpenSales = () => {
 
     setIsSubmitting(false);
     if (ok) {
+      // Stock changed server-side, but the mutation already invalidated the
+      // inventory cache — no manual refetch needed.
       clearCart();
       setShowCart(false);
-      await loadInventory(); // stock just changed server-side
     } else {
       // Surfaced in the cart sheet rather than an alert(), so the cashier can
       // see which line the server complained about while fixing it.
@@ -144,8 +140,6 @@ const OpenSales = () => {
           deleteOpenSale={deleteOpenSale}
           updateOpenSale={updateOpenSale}
           paySale={paySale}
-          loadSales={loadSales}
-          loadInventory={loadInventory}
           inventory={inventory}
           services={services}
         />

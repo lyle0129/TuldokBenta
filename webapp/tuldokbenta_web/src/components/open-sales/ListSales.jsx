@@ -13,8 +13,6 @@ const ListSales = ({
   deleteOpenSale,
   updateOpenSale,
   paySale,
-  loadSales,
-  loadInventory,
   inventory,
   services,
 }) => {
@@ -55,15 +53,6 @@ const ListSales = ({
     setTimeout(() => setShowSuccessModal(false), 2000);
   };
 
-  /**
-   * Stock is deducted server-side, so any sale mutation makes the "Stock:"
-   * figures on screen stale. loadSales alone doesn't refresh them — inventory
-   * is otherwise only fetched once on mount.
-   */
-  const refreshAfterMutation = async () => {
-    await Promise.all([loadSales?.(), loadInventory?.()]);
-  };
-
   const openEditModal = (sale) => {
     // Deep clone so staged edits can be abandoned with Cancel.
     setEditingSale(JSON.parse(JSON.stringify(sale)));
@@ -86,7 +75,6 @@ const ListSales = ({
 
     setShowModal(false);
     setEditError(null);
-    await loadInventory?.();
     flashSuccess(`Invoice #${updatedSale.invoice_number} updated.`);
   };
 
@@ -236,7 +224,6 @@ const ListSales = ({
         onConfirm={async (method) => {
           await paySale(payingSale.id, method);
           setPayingSale(null);
-          await refreshAfterMutation();
         }}
       />
 
@@ -247,7 +234,6 @@ const ListSales = ({
         onConfirm={async () => {
           await deleteOpenSale(deletingSale.id);
           setDeletingSale(null);
-          await refreshAfterMutation();
         }}
       />
 

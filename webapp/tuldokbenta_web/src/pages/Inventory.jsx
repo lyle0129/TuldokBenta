@@ -1,11 +1,10 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useInventory } from "../hooks/useInventory";
 
 const Inventory = () => {
   const {
     inventory,
     isLoading,
-    loadInventory,
     createInventoryItem,
     updateInventoryItem,
     deleteInventoryItem,
@@ -24,10 +23,6 @@ const Inventory = () => {
 
   const [editingItem, setEditingItem] = useState(null);
   const [deletingItem, setDeletingItem] = useState(null);
-
-  useEffect(() => {
-    loadInventory();
-  }, [loadInventory]);
 
   const handleCreate = async () => {
     if (!newItem.item_name || !newItem.item_classification) return;

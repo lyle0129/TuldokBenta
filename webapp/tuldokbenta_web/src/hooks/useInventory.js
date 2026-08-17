@@ -1,78 +1,88 @@
 // hooks/useInventory.js
-import { useState, useCallback } from "react";
-import { API_BASE_URL } from "../api";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { apiRequest } from "../api";
+import { queryKeys, staleTimes } from "../queryClient";
 
+/**
+ * The inventory list, shared by every page that mounts this hook.
+ *
+ * Previously each caller held its own useState copy, so walking Inventory →
+ * Services → Open Sales fetched the same list three times. Now they read one
+ * cache entry and the mutations below invalidate it.
+ *
+ * Mutations keep returning true/false rather than throwing, because that is
+ * what the Inventory page already branches on.
+ */
 export const useInventory = () => {
-  const [inventory, setInventory] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const queryClient = useQueryClient();
 
-  // ---------- FETCH ---------- //
-  const fetchInventory = useCallback(async () => {
-    try {
-      const res = await fetch(`${API_BASE_URL}/inventory`);
-      const data = await res.json();
-      setInventory(data);
-    } catch (error) {
-      console.error("Error fetching inventory:", error);
-    }
-  }, []);
+  const {
+    data: inventory = [],
+    isLoading,
+    isFetching,
+    error,
+  } = useQuery({
+    queryKey: queryKeys.inventory,
+    queryFn: ({ signal }) => apiRequest("/inventory", { signal }),
+    staleTime: staleTimes.inventory,
+  });
 
-  const loadInventory = useCallback(async () => {
-    setIsLoading(true);
-    try {
-      await fetchInventory();
-    } finally {
-      setIsLoading(false);
-    }
-  }, [fetchInventory]);
+  const invalidate = () =>
+    queryClient.invalidateQueries({ queryKey: queryKeys.inventory });
 
-  // ---------- MUTATIONS ---------- //
+  const createMutation = useMutation({
+    mutationFn: (item) => apiRequest("/inventory", { method: "POST", body: item }),
+    onSuccess: invalidate,
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, updates }) =>
+      apiRequest(`/inventory/${id}`, { method: "PUT", body: updates }),
+    onSuccess: invalidate,
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id) => apiRequest(`/inventory/${id}`, { method: "DELETE" }),
+    onSuccess: invalidate,
+  });
+
   const createInventoryItem = async (item) => {
     try {
-      const res = await fetch(`${API_BASE_URL}/inventory`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(item),
-      });
-      if (!res.ok) throw new Error("Failed to create inventory item");
-      await loadInventory();
+      await createMutation.mutateAsync(item);
       return true;
-    } catch (error) {
-      console.error("Error creating inventory item:", error);
+    } catch (err) {
+      console.error("Error creating inventory item:", err);
       return false;
     }
   };
 
   const updateInventoryItem = async (id, updates) => {
     try {
-      const res = await fetch(`${API_BASE_URL}/inventory/${id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(updates),
-      });
-      if (!res.ok) throw new Error("Failed to update inventory item");
-      await loadInventory();
+      await updateMutation.mutateAsync({ id, updates });
       return true;
-    } catch (error) {
-      console.error("Error updating inventory item:", error);
+    } catch (err) {
+      console.error("Error updating inventory item:", err);
       return false;
     }
   };
 
   const deleteInventoryItem = async (id) => {
     try {
-      const res = await fetch(`${API_BASE_URL}/inventory/${id}`, { method: "DELETE" });
-      if (!res.ok) throw new Error("Failed to delete inventory item");
-      await loadInventory();
-    } catch (error) {
-      console.error("Error deleting inventory item:", error);
+      await deleteMutation.mutateAsync(id);
+      return true;
+    } catch (err) {
+      console.error("Error deleting inventory item:", err);
+      return false;
     }
   };
 
   return {
     inventory,
     isLoading,
-    loadInventory,
+    isFetching,
+    // Read failures used to be swallowed into console.error, leaving the page
+    // showing an empty list as if the shop had no stock.
+    error: error?.message ?? null,
     createInventoryItem,
     updateInventoryItem,
     deleteInventoryItem,

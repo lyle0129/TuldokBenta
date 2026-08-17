@@ -1,19 +1,15 @@
 // pages/Services.js
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useServices } from "../hooks/useServices";
 import { useInventory } from "../hooks/useInventory";
 
 const Services = () => {
-  const {
-    services,
-    isLoading,
-    loadServices,
-    createService,
-    updateService,
-    deleteService,
-  } = useServices();
+  const { services, isLoading, createService, updateService, deleteService } =
+    useServices();
 
-  const { inventory, loadInventory } = useInventory();
+  // Only for the freebie classifications. Shares the Inventory page's cache
+  // entry, so arriving from there costs no request.
+  const { inventory } = useInventory();
 
   const [newService, setNewService] = useState({
     service_name: "",
@@ -22,11 +18,6 @@ const Services = () => {
   });
 
   const [editingService, setEditingService] = useState(null);
-
-  useEffect(() => {
-    loadServices();
-    loadInventory();
-  }, [loadServices, loadInventory]);
 
   const handleCreate = async () => {
     if (!newService.service_name) return;

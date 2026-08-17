@@ -2,8 +2,9 @@
  * Unit tests for API_BASE_URL fallback behaviour and hook URL usage.
  * Requirements: 1.3, 1.4
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { renderHook, act } from '@testing-library/react'
+import { describe, it, expect, vi, afterEach } from 'vitest'
+import { waitFor } from '@testing-library/react'
+import { renderHookWithQuery } from './utils/renderWithQuery.jsx'
 
 // ---------------------------------------------------------------------------
 // Helper: resolve API_BASE_URL from a freshly-loaded module with controlled env
@@ -57,89 +58,72 @@ function mockFetch() {
 }
 
 // ---------------------------------------------------------------------------
-// 2. Hook URL tests — each hook must call fetch with a URL starting with
-//    API_BASE_URL (here we use the default fallback URL).
+// 2. Hook URL tests — each read hook must call fetch with a URL starting with
+//    API_BASE_URL. These hooks now fetch on mount rather than exposing a
+//    loadX(), so the trigger is the render itself.
+//
+//    Note: no vi.resetModules() here, unlike the block above. Resetting the
+//    registry mid-test would hand the dynamically imported hooks a different
+//    copy of @tanstack/react-query than the statically imported wrapper holds,
+//    and the provider's context would no longer reach them.
 // ---------------------------------------------------------------------------
-describe('useSales fetch URLs', () => {
-  beforeEach(() => {
-    vi.unstubAllEnvs()
-    vi.resetModules()
-  })
+const expectAllUrlsUnderBaseUrl = async (hookName, importHook) => {
+  const calls = mockFetch()
+  const useHook = await importHook()
+  const { API_BASE_URL } = await import('../api.js')
+
+  renderHookWithQuery(() => useHook())
+
+  await waitFor(() => expect(calls.length).toBeGreaterThan(0))
+  for (const url of calls) {
+    expect(url.startsWith(API_BASE_URL), `${hookName} requested ${url}`).toBe(true)
+  }
+}
+
+describe('read hook fetch URLs', () => {
   afterEach(() => {
     vi.restoreAllMocks()
     vi.unstubAllEnvs()
-    vi.resetModules()
   })
 
-  it('calls fetch with URLs starting with API_BASE_URL', async () => {
+  it('useOpenSales calls fetch with URLs starting with API_BASE_URL', async () => {
+    await expectAllUrlsUnderBaseUrl(
+      'useOpenSales',
+      async () => (await import('../hooks/useSales.js')).useOpenSales
+    )
+  })
+
+  it('useClosedSales calls fetch with URLs starting with API_BASE_URL', async () => {
+    await expectAllUrlsUnderBaseUrl(
+      'useClosedSales',
+      async () => (await import('../hooks/useSales.js')).useClosedSales
+    )
+  })
+
+  it('useClosedSalesForDay calls fetch with URLs starting with API_BASE_URL', async () => {
+    const { useClosedSalesForDay } = await import('../hooks/useSales.js')
     const calls = mockFetch()
-    const { useSales } = await import('../hooks/useSales.js')
     const { API_BASE_URL } = await import('../api.js')
 
-    const { result } = renderHook(() => useSales())
-    await act(async () => {
-      await result.current.loadSales()
-    })
+    renderHookWithQuery(() => useClosedSalesForDay('2026-08-17'))
 
-    expect(calls.length).toBeGreaterThan(0)
+    await waitFor(() => expect(calls.length).toBeGreaterThan(0))
     for (const url of calls) {
       expect(url.startsWith(API_BASE_URL)).toBe(true)
     }
   })
-})
 
-describe('useInventory fetch URLs', () => {
-  beforeEach(() => {
-    vi.unstubAllEnvs()
-    vi.resetModules()
-  })
-  afterEach(() => {
-    vi.restoreAllMocks()
-    vi.unstubAllEnvs()
-    vi.resetModules()
+  it('useInventory calls fetch with URLs starting with API_BASE_URL', async () => {
+    await expectAllUrlsUnderBaseUrl(
+      'useInventory',
+      async () => (await import('../hooks/useInventory.js')).useInventory
+    )
   })
 
-  it('calls fetch with URLs starting with API_BASE_URL', async () => {
-    const calls = mockFetch()
-    const { useInventory } = await import('../hooks/useInventory.js')
-    const { API_BASE_URL } = await import('../api.js')
-
-    const { result } = renderHook(() => useInventory())
-    await act(async () => {
-      await result.current.loadInventory()
-    })
-
-    expect(calls.length).toBeGreaterThan(0)
-    for (const url of calls) {
-      expect(url.startsWith(API_BASE_URL)).toBe(true)
-    }
-  })
-})
-
-describe('useServices fetch URLs', () => {
-  beforeEach(() => {
-    vi.unstubAllEnvs()
-    vi.resetModules()
-  })
-  afterEach(() => {
-    vi.restoreAllMocks()
-    vi.unstubAllEnvs()
-    vi.resetModules()
-  })
-
-  it('calls fetch with URLs starting with API_BASE_URL', async () => {
-    const calls = mockFetch()
-    const { useServices } = await import('../hooks/useServices.js')
-    const { API_BASE_URL } = await import('../api.js')
-
-    const { result } = renderHook(() => useServices())
-    await act(async () => {
-      await result.current.loadServices()
-    })
-
-    expect(calls.length).toBeGreaterThan(0)
-    for (const url of calls) {
-      expect(url.startsWith(API_BASE_URL)).toBe(true)
-    }
+  it('useServices calls fetch with URLs starting with API_BASE_URL', async () => {
+    await expectAllUrlsUnderBaseUrl(
+      'useServices',
+      async () => (await import('../hooks/useServices.js')).useServices
+    )
   })
 })
