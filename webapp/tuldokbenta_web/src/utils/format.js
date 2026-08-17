@@ -1,0 +1,38 @@
+// utils/format.js
+// Display formatting shared by the sale lists and pages.
+//
+// Currency was formatted inline at every call site, which is how the closed
+// sales list ended up printing "$" while the rest of the app printed "₱".
+
+/** Peso amount, always two decimals. Tolerates strings — prices arrive as NUMERIC from Postgres. */
+export const formatCurrency = (value) => `₱${(Number(value) || 0).toFixed(2)}`;
+
+/** "8/17/2026, 2:03:44 PM" — the app's existing toLocaleString() output. */
+export const formatDateTime = (value) => {
+  if (!value) return "—";
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? "—" : d.toLocaleString();
+};
+
+/** "Mon, Aug 17, 2026" — for the closed-sales day header. */
+export const formatDayLabel = (isoDate) => {
+  if (!isoDate) return "—";
+  // Parse as local midnight; `new Date("2026-08-17")` would be parsed as UTC
+  // and render as the previous day for anyone west of Greenwich.
+  const d = new Date(`${isoDate}T00:00:00`);
+  return Number.isNaN(d.getTime())
+    ? "—"
+    : d.toLocaleDateString(undefined, {
+        weekday: "short",
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+      });
+};
+
+/** Sum of a sale's line totals. Freebie lines are price 0, so they contribute nothing. */
+export const saleTotal = (sale) =>
+  (sale?.items || []).reduce(
+    (sum, it) => sum + Number(it.price || 0) * Number(it.qty || 1),
+    0
+  );
