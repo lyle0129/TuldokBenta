@@ -43,7 +43,43 @@ export const useServices = () => {
     onSuccess: invalidate,
   });
 
-  const mutations = [createMutation, updateMutation, deleteMutation];
+  /**
+   * Optimistic on purpose: reordering is a rapid sequence of ▲/▼ taps, and
+   * waiting a round trip per tap makes the row visibly lag behind the finger.
+   * The server renumbers 1..N and returns the result, so onSettled reconciles.
+   */
+  const reorderMutation = useMutation({
+    mutationFn: (orderedIds) =>
+      apiRequest("/services/reorder", { method: "POST", body: { orderedIds } }),
+    onMutate: async (orderedIds) => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.services });
+      const previous = queryClient.getQueryData(queryKeys.services);
+
+      if (Array.isArray(previous)) {
+        const byId = new Map(previous.map((service) => [service.id, service]));
+        const next = orderedIds.map((id) => byId.get(id)).filter(Boolean);
+        // Anything the caller left out keeps its place at the end rather than
+        // vanishing from the list mid-flight.
+        const missing = previous.filter((s) => !orderedIds.includes(s.id));
+        queryClient.setQueryData(queryKeys.services, [...next, ...missing]);
+      }
+
+      return { previous };
+    },
+    onError: (_err, _orderedIds, context) => {
+      if (context?.previous !== undefined) {
+        queryClient.setQueryData(queryKeys.services, context.previous);
+      }
+    },
+    onSettled: invalidate,
+  });
+
+  const mutations = [
+    createMutation,
+    updateMutation,
+    deleteMutation,
+    reorderMutation,
+  ];
 
   /**
    * Clears every mutation's retained error before the next attempt.
@@ -87,6 +123,18 @@ export const useServices = () => {
     }
   };
 
+  /** @param {number[]} orderedIds every service id, in its new display order */
+  const reorderServices = async (orderedIds) => {
+    resetErrors();
+    try {
+      await reorderMutation.mutateAsync(orderedIds);
+      return true;
+    } catch (err) {
+      console.error("Error reordering services:", err);
+      return false;
+    }
+  };
+
   return {
     services,
     isLoading,
@@ -99,5 +147,6 @@ export const useServices = () => {
     createService,
     updateService,
     deleteService,
+    reorderServices,
   };
 };

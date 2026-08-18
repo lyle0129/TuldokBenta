@@ -25,6 +25,7 @@ const Services = () => {
     createService,
     updateService,
     deleteService,
+    reorderServices,
   } = useServices();
 
   // Only for the freebie classifications. Shares the Inventory page's cache
@@ -73,6 +74,23 @@ const Services = () => {
   const withFreebies = services.filter((s) => (s.freebies || []).length > 0)
     .length;
 
+  // ▲/▼ swap positions in the *full* list, so they can only be offered when
+  // what is on screen is the full list.
+  const canReorder = term === "";
+
+  const moveService = (id, direction) => {
+    const index = services.findIndex((s) => s.id === id);
+    const target = index + direction;
+    if (index === -1 || target < 0 || target >= services.length) return;
+
+    const orderedIds = services.map((s) => s.id);
+    [orderedIds[index], orderedIds[target]] = [
+      orderedIds[target],
+      orderedIds[index],
+    ];
+    reorderServices(orderedIds);
+  };
+
   // Each form closes only on success, so a rejected write leaves the modal
   // open with the error rather than silently discarding what was typed.
   const handleCreate = async (service) => {
@@ -118,7 +136,7 @@ const Services = () => {
           </button>
         </div>
 
-        <div className="pt-1 border-t border-gray-200 dark:border-gray-700">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2 pt-1 border-t border-gray-200 dark:border-gray-700">
           <p className="text-sm text-gray-600 dark:text-gray-400 pt-3">
             <span className="font-semibold text-gray-800 dark:text-gray-100">
               {services.length} {services.length === 1 ? "service" : "services"}
@@ -132,6 +150,11 @@ const Services = () => {
               </>
             )}
           </p>
+          {!canReorder && (
+            <p className="text-xs italic text-gray-500 dark:text-gray-400 sm:ml-auto sm:pt-3">
+              Clear the search to reorder services
+            </p>
+          )}
         </div>
       </div>
 
@@ -157,6 +180,8 @@ const Services = () => {
         ) : (
           <ServicesList
             services={visibleServices}
+            canReorder={canReorder}
+            onMove={moveService}
             onEdit={setEditingService}
             onDelete={setDeletingService}
             emptyMessage={

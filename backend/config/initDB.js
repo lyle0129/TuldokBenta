@@ -75,6 +75,18 @@ export async function initDB() {
       WHERE inventory.id = t.id AND inventory.sort_order IS NULL
     `;
 
+    // Same treatment for services: the sale catalog renders them before items,
+    // so their order is the first thing a cashier reads.
+    await sql`ALTER TABLE services ADD COLUMN IF NOT EXISTS sort_order INT`;
+
+    await sql`
+      UPDATE services SET sort_order = t.rn
+      FROM (
+        SELECT id, ROW_NUMBER() OVER (ORDER BY service_name ASC) AS rn FROM services
+      ) t
+      WHERE services.id = t.id AND services.sort_order IS NULL
+    `;
+
     console.log("✅ Database initialized successfully");
   } catch (error) {
     console.error("❌ Error initializing DB", error);

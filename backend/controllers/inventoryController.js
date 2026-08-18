@@ -1,5 +1,6 @@
 import { sql } from "../config/db.js";
 import { toErrorResponse } from "../utils/saleItems.js";
+import { invalidOrderedIds } from "../utils/reorder.js";
 
 /**
  * `undefined`/`null` means "leave it alone" (the COALESCE cases below).
@@ -18,9 +19,6 @@ const invalidStock = (stock) =>
  */
 const invalidPrice = (price) =>
   price !== undefined && price !== null && (!Number.isFinite(Number(price)) || Number(price) < 0);
-
-/** Most rows a single reorder may renumber, so a bogus payload can't build a huge transaction. */
-const MAX_REORDER_IDS = 500;
 
 /** Ordering used everywhere: the admin's custom order, then name for un-numbered rows. */
 const selectOrdered = () =>
@@ -174,18 +172,8 @@ export const reorderInventory = async (req, res) => {
   try {
     const { orderedIds } = req.body;
 
-    if (!Array.isArray(orderedIds) || orderedIds.length === 0) {
-      return res.status(400).json({ message: "`orderedIds` must be a non-empty array of item ids" });
-    }
-    if (orderedIds.length > MAX_REORDER_IDS) {
-      return res.status(400).json({ message: `Cannot reorder more than ${MAX_REORDER_IDS} items at once` });
-    }
-    if (!orderedIds.every((id) => Number.isInteger(Number(id)))) {
-      return res.status(400).json({ message: "Every entry in `orderedIds` must be an item id" });
-    }
-    if (new Set(orderedIds.map(Number)).size !== orderedIds.length) {
-      return res.status(400).json({ message: "`orderedIds` contains duplicate ids" });
-    }
+    const problem = invalidOrderedIds(orderedIds);
+    if (problem) return res.status(400).json({ message: problem });
 
     // Queries are passed unawaited on purpose — sql.transaction batches them.
     await sql.transaction(
