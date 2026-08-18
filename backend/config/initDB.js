@@ -58,6 +58,23 @@ export async function initDB() {
       EXCEPTION WHEN duplicate_object THEN NULL; END $$;
     `;
 
+    // The order items appear in on the Inventory page and in the sale catalog.
+    // Before this, the only ordering was `item_name ASC`, which is why item
+    // names carry "[Detergent] " / "[Fabcon] " prefixes — the name was being
+    // bent to force the alphabetical sort into groups.
+    await sql`ALTER TABLE inventory ADD COLUMN IF NOT EXISTS sort_order INT`;
+
+    // One-time backfill: number existing rows in the order they already
+    // appeared in. Only touches NULLs, so every boot after the first is a
+    // no-op and a deliberate reorder is never undone.
+    await sql`
+      UPDATE inventory SET sort_order = t.rn
+      FROM (
+        SELECT id, ROW_NUMBER() OVER (ORDER BY item_name ASC) AS rn FROM inventory
+      ) t
+      WHERE inventory.id = t.id AND inventory.sort_order IS NULL
+    `;
+
     console.log("✅ Database initialized successfully");
   } catch (error) {
     console.error("❌ Error initializing DB", error);

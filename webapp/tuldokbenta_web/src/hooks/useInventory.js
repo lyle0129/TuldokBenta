@@ -46,7 +46,62 @@ export const useInventory = () => {
     onSuccess: invalidate,
   });
 
+  const restockMutation = useMutation({
+    mutationFn: ({ id, amount }) =>
+      apiRequest(`/inventory/${id}/restock`, { method: "POST", body: { amount } }),
+    onSuccess: invalidate,
+  });
+
+  /**
+   * Optimistic on purpose: reordering is a rapid sequence of ▲/▼ taps, and
+   * waiting a round trip per tap makes the row visibly lag behind the finger.
+   * The server renumbers 1..N and returns the result, so onSettled reconciles.
+   */
+  const reorderMutation = useMutation({
+    mutationFn: (orderedIds) =>
+      apiRequest("/inventory/reorder", { method: "POST", body: { orderedIds } }),
+    onMutate: async (orderedIds) => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.inventory });
+      const previous = queryClient.getQueryData(queryKeys.inventory);
+
+      if (Array.isArray(previous)) {
+        const byId = new Map(previous.map((item) => [item.id, item]));
+        const next = orderedIds.map((id) => byId.get(id)).filter(Boolean);
+        // Anything the caller left out keeps its place at the end rather than
+        // vanishing from the list mid-flight.
+        const missing = previous.filter((item) => !orderedIds.includes(item.id));
+        queryClient.setQueryData(queryKeys.inventory, [...next, ...missing]);
+      }
+
+      return { previous };
+    },
+    onError: (_err, _orderedIds, context) => {
+      if (context?.previous !== undefined) {
+        queryClient.setQueryData(queryKeys.inventory, context.previous);
+      }
+    },
+    onSettled: invalidate,
+  });
+
+  const mutations = [
+    createMutation,
+    updateMutation,
+    deleteMutation,
+    restockMutation,
+    reorderMutation,
+  ];
+
+  /**
+   * Clears every mutation's retained error before the next attempt.
+   *
+   * TanStack keeps `.error` on a mutation until it is reset or re-run, so
+   * without this a failed delete would keep the banner up through a later
+   * successful restock — the page reads whichever mutation still holds an error.
+   */
+  const resetErrors = () => mutations.forEach((m) => m.reset());
+
   const createInventoryItem = async (item) => {
+    resetErrors();
     try {
       await createMutation.mutateAsync(item);
       return true;
@@ -57,6 +112,7 @@ export const useInventory = () => {
   };
 
   const updateInventoryItem = async (id, updates) => {
+    resetErrors();
     try {
       await updateMutation.mutateAsync({ id, updates });
       return true;
@@ -67,11 +123,36 @@ export const useInventory = () => {
   };
 
   const deleteInventoryItem = async (id) => {
+    resetErrors();
     try {
       await deleteMutation.mutateAsync(id);
       return true;
     } catch (err) {
       console.error("Error deleting inventory item:", err);
+      return false;
+    }
+  };
+
+  /** Adds `amount` to the item's current stock. Never sends an absolute value. */
+  const restockInventoryItem = async (id, amount) => {
+    resetErrors();
+    try {
+      await restockMutation.mutateAsync({ id, amount });
+      return true;
+    } catch (err) {
+      console.error("Error restocking inventory item:", err);
+      return false;
+    }
+  };
+
+  /** @param {number[]} orderedIds every item id, in its new display order */
+  const reorderInventory = async (orderedIds) => {
+    resetErrors();
+    try {
+      await reorderMutation.mutateAsync(orderedIds);
+      return true;
+    } catch (err) {
+      console.error("Error reordering inventory:", err);
       return false;
     }
   };
@@ -83,8 +164,14 @@ export const useInventory = () => {
     // Read failures used to be swallowed into console.error, leaving the page
     // showing an empty list as if the shop had no stock.
     error: error?.message ?? null,
+    // Write failures were swallowed the same way, so a rejected save closed the
+    // modal as if it had worked. The page renders this.
+    mutationError: mutations.find((m) => m.error)?.error?.message ?? null,
+    isMutating: mutations.some((m) => m.isPending),
     createInventoryItem,
     updateInventoryItem,
     deleteInventoryItem,
+    restockInventoryItem,
+    reorderInventory,
   };
 };
