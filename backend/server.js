@@ -9,6 +9,7 @@ import servicesRouter from "./routes/services.js";
 import inventoryRouter from "./routes/inventory.js";
 import openSalesRouter from "./routes/openSales.js";
 import closedSalesRouter from "./routes/closedSales.js";
+import paymentMethodsRouter from "./routes/paymentMethods.js";
 
 const app = express();
 const PORT = process.env.PORT || 5001;
@@ -22,6 +23,7 @@ app.use("/api/services", servicesRouter);
 app.use("/api/inventory", inventoryRouter);
 app.use("/api", openSalesRouter);
 app.use("/api/closed-sales", closedSalesRouter);
+app.use("/api/payment-methods", paymentMethodsRouter);
 
 initDB().then(() => {
   app.listen(PORT, () => {

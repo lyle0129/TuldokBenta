@@ -1,9 +1,19 @@
+import { useMemo } from 'react';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
-import { Banknote, Smartphone, CreditCard, Wallet } from 'lucide-react';
-
-const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#06B6D4'];
+import { usePaymentMethods } from '../../hooks/usePaymentMethods';
+import {
+  PAYMENT_COLORS as COLORS,
+  buildMethodLookup,
+  resolveMethod,
+} from '../../utils/paymentMethods';
 
 const PaymentBreakdownChart = ({ paymentMethodBreakdown, formatCurrency }) => {
+  const { paymentMethods } = usePaymentMethods();
+  const lookup = useMemo(
+    () => buildMethodLookup(paymentMethods),
+    [paymentMethods]
+  );
+
   if (Object.keys(paymentMethodBreakdown).length === 0) {
     return null;
   }
@@ -21,7 +31,7 @@ const PaymentBreakdownChart = ({ paymentMethodBreakdown, formatCurrency }) => {
             <PieChart>
               <Pie
                 data={Object.entries(paymentMethodBreakdown).map(([method, data], index) => ({
-                  name: method,
+                  name: resolveMethod(lookup, method).label,
                   value: data.total,
                   count: data.count,
                   color: COLORS[index % COLORS.length]
@@ -53,16 +63,16 @@ const PaymentBreakdownChart = ({ paymentMethodBreakdown, formatCurrency }) => {
           </ResponsiveContainer>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {Object.entries(paymentMethodBreakdown).map(([method, data]) => (
+          {Object.entries(paymentMethodBreakdown).map(([method, data]) => {
+            const { label, Icon } = resolveMethod(lookup, method);
+            return (
             <div key={method} className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4">
               <div className="flex items-center justify-between mb-2">
-                <h4 className="font-medium text-gray-900 dark:text-gray-100 capitalize">
-                  {method}
+                <h4 className="font-medium text-gray-900 dark:text-gray-100">
+                  {label}
                 </h4>
                 <span className="text-2xl">
-                  {method.toLowerCase() === 'cash' ? <Banknote size={24} /> :
-                   method.toLowerCase() === 'gcash' ? <Smartphone size={24} /> :
-                   method.toLowerCase() === 'card' ? <CreditCard size={24} /> : <Wallet size={24} />}
+                  <Icon size={24} aria-hidden="true" />
                 </span>
               </div>
               <div className="space-y-1">
@@ -77,7 +87,8 @@ const PaymentBreakdownChart = ({ paymentMethodBreakdown, formatCurrency }) => {
                 </div>
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       </div>
     </div>

@@ -1,5 +1,7 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { ChevronDown, ChevronUp, ChevronsUpDown } from 'lucide-react';
+import { usePaymentMethods } from '../../hooks/usePaymentMethods';
+import { buildMethodLookup, resolveMethod } from '../../utils/paymentMethods';
 
 export default function EnhancedSalesList({
   title,
@@ -13,6 +15,12 @@ export default function EnhancedSalesList({
   const [sortBy, setSortBy] = useState('created_at'); // 'created_at', 'paid_at', 'total', 'invoice_number'
   const [sortOrder, setSortOrder] = useState('desc'); // 'asc', 'desc'
   const [expandedSales, setExpandedSales] = useState(new Set());
+
+  const { paymentMethods } = usePaymentMethods();
+  const methodLookup = useMemo(
+    () => buildMethodLookup(paymentMethods),
+    [paymentMethods]
+  );
 
   // Calculate totals for each sale
   const salesWithTotals = sales.map(sale => ({
@@ -199,7 +207,7 @@ export default function EnhancedSalesList({
                     </span>
                     {showPaymentInfo && sale.paid_using && (
                       <span className="px-2 py-1 bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 rounded text-xs">
-                        {sale.paid_using}
+                        {resolveMethod(methodLookup, sale.paid_using).label}
                       </span>
                     )}
                   </div>

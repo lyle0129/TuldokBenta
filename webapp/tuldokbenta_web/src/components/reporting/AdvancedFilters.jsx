@@ -1,15 +1,18 @@
-import { useState, useEffect } from "react";
+import { useState, useMemo } from "react";
+import { usePaymentMethods } from "../../hooks/usePaymentMethods";
+import { buildMethodLookup, resolveMethod } from "../../utils/paymentMethods";
 
-export default function AdvancedFilters({ 
-  sales, 
-  onFiltersChange, 
-  onReset 
+export default function AdvancedFilters({
+  sales,
+  onFiltersChange,
+  onReset
 }) {
   const [filters, setFilters] = useState({
     invoiceNumber: '',
     serviceName: '',
     serviceType: 'all', // 'all', 'service', 'item'
-    paymentMethod: 'all', // 'all', 'cash', 'gcash', etc.
+    // 'all' or a payment_methods.code — matched against the raw paid_using string
+    paymentMethod: 'all',
     searchQuery: '', // New search field
     dateRange: {
       from: '',
@@ -28,11 +31,31 @@ export default function AdvancedFilters({
     )
   )].filter(Boolean).sort();
 
-  const uniquePaymentMethods = [...new Set(
-    sales
-      .filter(sale => sale.paid_using)
-      .map(sale => sale.paid_using)
-  )].filter(Boolean).sort();
+  const { paymentMethods } = usePaymentMethods();
+
+  /**
+   * The configured methods in the admin's own order, then any code still
+   * present in the data that no longer has a row.
+   *
+   * Was derived purely from the sales data and sorted alphabetically, which
+   * showed raw slugs in an order unrelated to the pay dialog's. The tail keeps
+   * a deleted method's sales filterable instead of stranding them.
+   */
+  const paymentMethodOptions = useMemo(() => {
+    const lookup = buildMethodLookup(paymentMethods);
+    const configured = paymentMethods.map((m) => ({
+      code: m.code,
+      label: m.label,
+    }));
+    const known = new Set(configured.map((o) => o.code));
+
+    const orphaned = [...new Set(sales.map((s) => s.paid_using).filter(Boolean))]
+      .filter((code) => !known.has(code))
+      .sort()
+      .map((code) => ({ code, label: resolveMethod(lookup, code).label }));
+
+    return [...configured, ...orphaned];
+  }, [paymentMethods, sales]);
 
   // Get today's date for default values
   const today = new Date();
@@ -206,8 +229,8 @@ export default function AdvancedFilters({
               className="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
             >
               <option value="all">All Methods</option>
-              {uniquePaymentMethods.map(method => (
-                <option key={method} value={method}>{method}</option>
+              {paymentMethodOptions.map(({ code, label }) => (
+                <option key={code} value={code}>{label}</option>
               ))}
             </select>
           </div>

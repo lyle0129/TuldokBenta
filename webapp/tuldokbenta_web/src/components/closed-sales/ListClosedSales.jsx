@@ -1,8 +1,10 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { printInvoice } from "../../utils/printInvoice";
 import Pagination from "../shared/Pagination";
 import { isFreebieLine } from "../../utils/buildSaleItems";
 import { formatCurrency, formatDateTime, saleTotal } from "../../utils/format";
+import { usePaymentMethods } from "../../hooks/usePaymentMethods";
+import { buildMethodLookup, resolveMethod } from "../../utils/paymentMethods";
 
 const SALES_PER_PAGE = 10;
 
@@ -12,6 +14,13 @@ const ListClosedSales = ({
   emptyMessage = "No closed sales yet.",
 }) => {
   const [currentPage, setCurrentPage] = useState(1);
+
+  // Rows store the method code; this turns it back into the admin's label.
+  const { paymentMethods } = usePaymentMethods();
+  const methodLookup = useMemo(
+    () => buildMethodLookup(paymentMethods),
+    [paymentMethods]
+  );
 
   // Searching or changing the day can shrink the list past the current page.
   useEffect(() => {
@@ -49,7 +58,7 @@ const ListClosedSales = ({
               <p className="text-base font-medium mt-1 text-green-700 dark:text-green-400">
                 {formatCurrency(saleTotal(sale))}
                 <span className="ml-2 text-sm font-normal text-gray-500 dark:text-gray-400">
-                  via {sale.paid_using}
+                  via {resolveMethod(methodLookup, sale.paid_using).label}
                 </span>
               </p>
 

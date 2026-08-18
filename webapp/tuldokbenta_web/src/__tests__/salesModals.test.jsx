@@ -4,6 +4,7 @@ import { describe, it, expect, vi } from "vitest";
 import EditSaleModal from "../components/sales-modals/EditSaleModal";
 import PaySaleModal from "../components/sales-modals/PaySaleModal";
 import DeleteSaleModal from "../components/sales-modals/DeleteSaleModal";
+import { renderWithQuery } from "./utils/renderWithQuery.jsx";
 
 const mockSale = {
   id: 1,
@@ -206,6 +207,9 @@ describe("EditSaleModal", () => {
 // ---------------------------------------------------------------------------
 // PaySaleModal
 // ---------------------------------------------------------------------------
+// The method dropdown reads the payment_methods table through the shared cache,
+// so this one needs a QueryClient. See paymentMethods.test.jsx for the options
+// themselves; these only pin the render guards.
 describe("PaySaleModal", () => {
   const validProps = {
     sale: mockSale,
@@ -214,19 +218,19 @@ describe("PaySaleModal", () => {
   };
 
   it("renders without crashing when given valid props", () => {
-    render(<PaySaleModal {...validProps} />);
+    renderWithQuery(<PaySaleModal {...validProps} />);
     expect(screen.getByText(/Pay Invoice #INV-0001/i)).toBeInTheDocument();
   });
 
   it("returns null when sale is null", () => {
-    const { container } = render(
+    const { container } = renderWithQuery(
       <PaySaleModal {...validProps} sale={null} />
     );
     expect(container.firstChild).toBeNull();
   });
 
   it("returns null when sale is undefined", () => {
-    const { container } = render(
+    const { container } = renderWithQuery(
       <PaySaleModal {...validProps} sale={undefined} />
     );
     expect(container.firstChild).toBeNull();

@@ -1,18 +1,19 @@
-import { 
-  FileText, 
-  CheckCircle, 
-  Wallet, 
-  Diamond, 
+import { useMemo } from 'react';
+import {
+  FileText,
+  CheckCircle,
+  Wallet,
+  Diamond,
   Banknote,
   Wrench,
   Package,
   Gift,
-  CreditCard,
-  Smartphone,
   BarChart3,
   Activity
 } from 'lucide-react';
 import { useTodaysAnalytics } from "../../hooks/useTodaysAnalytics";
+import { usePaymentMethods } from "../../hooks/usePaymentMethods";
+import { buildMethodLookup, resolveMethod } from "../../utils/paymentMethods";
 
 export default function TodaysSummary({ 
   openSales, 
@@ -26,6 +27,12 @@ export default function TodaysSummary({
   };
   const today = new Date();
   today.setHours(0, 0, 0, 0);
+
+  const { paymentMethods } = usePaymentMethods();
+  const methodLookup = useMemo(
+    () => buildMethodLookup(paymentMethods),
+    [paymentMethods]
+  );
 
   const {
     todaysOpenSales,
@@ -156,16 +163,16 @@ export default function TodaysSummary({
             Today's Payment Methods
           </h3>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            {Object.entries(paymentMethodBreakdown).map(([method, data]) => (
+            {Object.entries(paymentMethodBreakdown).map(([method, data]) => {
+              const { label, Icon } = resolveMethod(methodLookup, method);
+              return (
               <div key={method} className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4">
                 <div className="flex items-center justify-between mb-2">
-                  <h4 className="font-medium text-gray-900 dark:text-gray-100 capitalize">
-                    {method}
+                  <h4 className="font-medium text-gray-900 dark:text-gray-100">
+                    {label}
                   </h4>
                   <span className="text-2xl">
-                    {method.toLowerCase() === 'cash' ? <Banknote size={24} /> : 
-                     method.toLowerCase() === 'gcash' ? <Smartphone size={24} /> : 
-                     method.toLowerCase() === 'card' ? <CreditCard size={24} /> : <Wallet size={24} />}
+                    <Icon size={24} aria-hidden="true" />
                   </span>
                 </div>
                 <div className="space-y-1">
@@ -180,7 +187,8 @@ export default function TodaysSummary({
                   </div>
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}

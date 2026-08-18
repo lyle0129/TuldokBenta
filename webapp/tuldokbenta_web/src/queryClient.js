@@ -22,6 +22,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 export const queryKeys = {
   inventory: ["inventory"],
   services: ["services"],
+  paymentMethods: ["paymentMethods"],
   openSales: ["openSales"],
   closedSales: ["closedSales"],
   closedSalesAll: ["closedSales", "all"],
@@ -39,6 +40,8 @@ export const queryKeys = {
  */
 export const staleTimes = {
   services: 5 * 60 * 1000,
+  // Edited about as often as services — a handful of times ever.
+  paymentMethods: 5 * 60 * 1000,
   inventory: 60 * 1000,
   sales: 30 * 1000,
 };
@@ -62,7 +65,14 @@ const persister = createSyncStoragePersister({
 });
 
 /** Resources safe to restore from disk at boot, so the first paint isn't blank. */
-const PERSISTED_RESOURCES = ["inventory", "services", "closedSales"];
+const PERSISTED_RESOURCES = [
+  "inventory",
+  "services",
+  "closedSales",
+  // Without this the pay dialog would have an empty method dropdown until the
+  // first fetch lands, which is the one moment a cashier cannot wait.
+  "paymentMethods",
+];
 
 export const persistOptions = {
   persister,

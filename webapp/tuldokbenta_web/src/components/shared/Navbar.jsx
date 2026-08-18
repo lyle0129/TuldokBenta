@@ -68,6 +68,9 @@ const Navbar = () => {
           <NavLink to="/services" className={linkClasses}>
             Services
           </NavLink>
+          <NavLink to="/payment-methods" className={linkClasses}>
+            Payment Methods
+          </NavLink>
           <NavLink to="/reporting" className={linkClasses}>
             Reporting
           </NavLink>
@@ -157,6 +160,13 @@ const Navbar = () => {
               onClick={() => setMenuOpen(false)}
             >
               Services
+            </NavLink>
+            <NavLink
+              to="/payment-methods"
+              className={linkClasses}
+              onClick={() => setMenuOpen(false)}
+            >
+              Payment Methods
             </NavLink>
             <NavLink
               to="/reporting"

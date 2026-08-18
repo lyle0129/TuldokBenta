@@ -70,6 +70,8 @@ describe("DayPicker", () => {
 // ---------------------------------------------------------------------------
 // ListClosedSales
 // ---------------------------------------------------------------------------
+// Rows resolve their payment method's label through the shared cache, so these
+// need a QueryClient even though nothing here asserts on the label.
 describe("ListClosedSales", () => {
   const makeSale = (id, invoice) => ({
     id,
@@ -81,13 +83,13 @@ describe("ListClosedSales", () => {
   });
 
   it("renders totals in pesos, not dollars", () => {
-    render(<ListClosedSales closedSales={[makeSale(1, "INV-0001")]} revertSale={vi.fn()} />);
+    renderWithQuery(<ListClosedSales closedSales={[makeSale(1, "INV-0001")]} revertSale={vi.fn()} />);
     expect(screen.getByText(/₱100\.00/)).toBeInTheDocument();
     expect(screen.queryByText(/\$100\.00/)).not.toBeInTheDocument();
   });
 
   it("shows the caller's empty message so 'no sales' and 'no matches' differ", () => {
-    render(
+    renderWithQuery(
       <ListClosedSales
         closedSales={[]}
         revertSale={vi.fn()}
@@ -101,7 +103,7 @@ describe("ListClosedSales", () => {
     const sales = Array.from({ length: 12 }, (_, i) =>
       makeSale(i + 1, `INV-${String(i + 1).padStart(4, "0")}`)
     );
-    render(<ListClosedSales closedSales={sales} revertSale={vi.fn()} />);
+    renderWithQuery(<ListClosedSales closedSales={sales} revertSale={vi.fn()} />);
 
     expect(screen.getByText(/Showing 1–10 of 12/)).toBeInTheDocument();
     expect(screen.getByText("Invoice #INV-0001")).toBeInTheDocument();
@@ -113,7 +115,7 @@ describe("ListClosedSales", () => {
 
   it("resets to page 1 when the list changes underneath it", () => {
     const sales = Array.from({ length: 12 }, (_, i) => makeSale(i + 1, `INV-${i + 1}`));
-    const { rerender } = render(
+    const { rerender } = renderWithQuery(
       <ListClosedSales closedSales={sales} revertSale={vi.fn()} />
     );
 
@@ -127,7 +129,7 @@ describe("ListClosedSales", () => {
 
   it("reverts the sale it was asked to revert", () => {
     const revertSale = vi.fn();
-    render(<ListClosedSales closedSales={[makeSale(7, "INV-0007")]} revertSale={revertSale} />);
+    renderWithQuery(<ListClosedSales closedSales={[makeSale(7, "INV-0007")]} revertSale={revertSale} />);
 
     fireEvent.click(screen.getByRole("button", { name: /revert/i }));
     expect(revertSale).toHaveBeenCalledWith(7);
@@ -155,16 +157,21 @@ describe("ClosedSales page", () => {
     vi.unstubAllGlobals();
   });
 
+  // The page fetches more than closed sales now — the list resolves payment
+  // method labels too — so assert on the day-range requests specifically.
+  const dayRequests = () =>
+    requestedUrls.filter((url) => String(url).includes("/closed-sales?lowdate="));
+
+  const lowdateOf = (url) =>
+    decodeURIComponent(new URL(url, "http://x").searchParams.get("lowdate"));
+
   it("asks for today's range on first render", async () => {
     const { default: ClosedSales } = await import("../pages/ClosedSales");
     renderWithQuery(<ClosedSales />);
 
-    await waitFor(() => expect(requestedUrls.length).toBeGreaterThan(0));
-    expect(requestedUrls[0]).toContain("/closed-sales?lowdate=");
+    await waitFor(() => expect(dayRequests().length).toBeGreaterThan(0));
     // The range is sent in UTC, so assert on the local day the request covers.
-    const lowdate = decodeURIComponent(
-      new URL(requestedUrls[0], "http://x").searchParams.get("lowdate")
-    );
+    const lowdate = lowdateOf(dayRequests()[0]);
     expect(new Date(`${lowdate}Z`).getDate()).toBe(new Date().getDate());
   });
 
@@ -172,15 +179,13 @@ describe("ClosedSales page", () => {
     const { default: ClosedSales } = await import("../pages/ClosedSales");
     renderWithQuery(<ClosedSales />);
 
-    await waitFor(() => expect(requestedUrls.length).toBeGreaterThan(0));
-    const before = requestedUrls.length;
+    await waitFor(() => expect(dayRequests().length).toBeGreaterThan(0));
+    const before = dayRequests().length;
 
     fireEvent.click(screen.getByRole("button", { name: /previous day/i }));
 
-    await waitFor(() => expect(requestedUrls.length).toBeGreaterThan(before));
-    const lowdate = decodeURIComponent(
-      new URL(requestedUrls.at(-1), "http://x").searchParams.get("lowdate")
-    );
+    await waitFor(() => expect(dayRequests().length).toBeGreaterThan(before));
+    const lowdate = lowdateOf(dayRequests().at(-1));
     expect(new Date(`${lowdate}Z`).getDate()).toBe(
       new Date(`${yesterday}T00:00:00`).getDate()
     );

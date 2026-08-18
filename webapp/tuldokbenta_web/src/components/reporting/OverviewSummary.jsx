@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
 import {
   Calendar,
@@ -16,6 +16,8 @@ import RevenueTrendChart from '../charts/RevenueTrendChart';
 import SalesVolumeChart from '../charts/SalesVolumeChart';
 import PaymentBreakdownChart from '../charts/PaymentBreakdownChart';
 import ItemSalesChart from '../charts/ItemSalesChart';
+import { usePaymentMethods } from '../../hooks/usePaymentMethods';
+import { buildMethodLookup, resolveMethod } from '../../utils/paymentMethods';
 
 const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#06B6D4'];
 
@@ -48,6 +50,12 @@ export default function OverviewSummary({
     samePeriodCreatedAndPaid,
     analytics,
   } = useOverviewAnalytics({ openSales, closedSales, filters, allOpenSales, allClosedSales, timePeriod });
+
+  const { paymentMethods } = usePaymentMethods();
+  const methodLookup = useMemo(
+    () => buildMethodLookup(paymentMethods),
+    [paymentMethods]
+  );
 
   return (
     <div className="space-y-6">
@@ -191,7 +199,7 @@ export default function OverviewSummary({
                   });
                   return Object.entries(paymentBreakdown).map(([method, amount]) => (
                     <div key={method} className="flex justify-between text-sm">
-                      <span className="text-gray-600 dark:text-gray-400 capitalize">{method}:</span>
+                      <span className="text-gray-600 dark:text-gray-400">{resolveMethod(methodLookup, method).label}:</span>
                       <span className="font-medium text-gray-900 dark:text-gray-100">{safeFormatCurrency(amount)}</span>
                     </div>
                   ));
@@ -246,7 +254,7 @@ export default function OverviewSummary({
                   });
                   return Object.entries(paymentBreakdown).map(([method, amount]) => (
                     <div key={method} className="flex justify-between text-sm">
-                      <span className="text-gray-600 dark:text-gray-400 capitalize">{method}:</span>
+                      <span className="text-gray-600 dark:text-gray-400">{resolveMethod(methodLookup, method).label}:</span>
                       <span className="font-medium text-gray-900 dark:text-gray-100">{safeFormatCurrency(amount)}</span>
                     </div>
                   ));

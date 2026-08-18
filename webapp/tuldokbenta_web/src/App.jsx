@@ -2,6 +2,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-d
 import Navbar from "./components/shared/Navbar";
 import Inventory from "./pages/Inventory";
 import Services from "./pages/Services";
+import PaymentMethods from "./pages/PaymentMethods";
 import OpenSales from "./pages/OpenSales";
 import ClosedSales from "./pages/ClosedSales";
 import Reporting from "./pages/Reporting";
@@ -30,6 +31,14 @@ function App() {
               element={
                 <ProtectedRoute>
                   <Services />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/payment-methods"
+              element={
+                <ProtectedRoute>
+                  <PaymentMethods />
                 </ProtectedRoute>
               }
             />

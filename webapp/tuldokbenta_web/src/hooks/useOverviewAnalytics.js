@@ -131,9 +131,9 @@ export function useOverviewAnalytics({
           total: 0,
           revenue: 0,
           paymentsToday: [],
-          cashPayments: 0,
-          gcashPayments: 0,
-          otherPayments: 0,
+          // Keyed by the raw paid_using code. Was a fixed cash/gcash/other
+          // triple, which could not describe a method added at runtime.
+          byMethod: {},
         };
       }
 
@@ -158,14 +158,9 @@ export function useOverviewAnalytics({
         grouped[paidKey].paymentsToday.push(sale);
         grouped[paidKey].revenue += saleTotal;
 
-        const paymentMethod = (sale.paid_using || "").toLowerCase();
-        if (paymentMethod === "cash") {
-          grouped[paidKey].cashPayments += saleTotal;
-        } else if (paymentMethod === "gcash") {
-          grouped[paidKey].gcashPayments += saleTotal;
-        } else {
-          grouped[paidKey].otherPayments += saleTotal;
-        }
+        const paymentMethod = sale.paid_using || "";
+        grouped[paidKey].byMethod[paymentMethod] =
+          (grouped[paidKey].byMethod[paymentMethod] || 0) + saleTotal;
 
         if (createdKey === paidKey) {
           grouped[createdKey].closed.push(sale);
@@ -286,9 +281,7 @@ export function useOverviewAnalytics({
         totalSales: data.total,
         revenue: data.revenue,
         paymentsToday: data.paymentsToday.length,
-        cashPayments: data.cashPayments,
-        gcashPayments: data.gcashPayments,
-        otherPayments: data.otherPayments,
+        byMethod: data.byMethod,
         displayPeriod: formatPeriodLabel(period, timePeriod),
       }))
       .sort((a, b) => a.period.localeCompare(b.period));

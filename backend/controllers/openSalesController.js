@@ -165,6 +165,19 @@ export const paySale = async (req, res) => {
       return res.status(400).json({ message: "Payment method is required" });
     }
 
+    // The method list is cached on the client for five minutes, so a cashier can
+    // still be offering one that was just deactivated. paid_using is stored as a
+    // plain string either way — this only rejects codes with no active row.
+    const method = await sql`
+      SELECT code FROM payment_methods
+      WHERE code = ${paid_using} AND is_active = TRUE
+    `;
+    if (method.length === 0) {
+      return res
+        .status(400)
+        .json({ message: "That payment method is no longer available" });
+    }
+
     const sale = await sql`SELECT * FROM open_sales WHERE id = ${id}`;
     if (sale.length === 0) return res.status(404).json({ message: "Sale not found" });
     const s = sale[0];
