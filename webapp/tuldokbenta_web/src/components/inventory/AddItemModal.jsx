@@ -8,7 +8,7 @@ import {
   noticeClass,
   cancelButtonClass,
   submitButtonClass,
-} from "./fieldStyles";
+} from "../shared/fieldStyles";
 
 const EMPTY = { item_name: "", item_classification: "", stock: "", price: "" };
 

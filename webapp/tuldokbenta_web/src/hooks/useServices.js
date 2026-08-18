@@ -43,7 +43,19 @@ export const useServices = () => {
     onSuccess: invalidate,
   });
 
+  const mutations = [createMutation, updateMutation, deleteMutation];
+
+  /**
+   * Clears every mutation's retained error before the next attempt.
+   *
+   * TanStack keeps `.error` on a mutation until it is reset or re-run, so
+   * without this a failed delete would keep the banner up through a later
+   * successful edit — the page reads whichever mutation still holds an error.
+   */
+  const resetErrors = () => mutations.forEach((m) => m.reset());
+
   const createService = async (service) => {
+    resetErrors();
     try {
       await createMutation.mutateAsync(service);
       return true;
@@ -54,6 +66,7 @@ export const useServices = () => {
   };
 
   const updateService = async (id, updates) => {
+    resetErrors();
     try {
       await updateMutation.mutateAsync({ id, updates });
       return true;
@@ -64,6 +77,7 @@ export const useServices = () => {
   };
 
   const deleteService = async (id) => {
+    resetErrors();
     try {
       await deleteMutation.mutateAsync(id);
       return true;
@@ -78,6 +92,10 @@ export const useServices = () => {
     isLoading,
     isFetching,
     error: error?.message ?? null,
+    // Write failures were swallowed into console.error, so a rejected save
+    // closed the modal as if it had worked. The page renders this.
+    mutationError: mutations.find((m) => m.error)?.error?.message ?? null,
+    isMutating: mutations.some((m) => m.isPending),
     createService,
     updateService,
     deleteService,

@@ -9,7 +9,7 @@ import InventoryList, {
 import AddItemModal from "../components/inventory/AddItemModal";
 import EditItemModal from "../components/inventory/EditItemModal";
 import RestockModal from "../components/inventory/RestockModal";
-import { alertClass } from "../components/inventory/fieldStyles";
+import { alertClass } from "../components/shared/fieldStyles";
 
 const ALL = "__all__";
 

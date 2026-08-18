@@ -1,7 +1,7 @@
-// components/inventory/fieldStyles.js
-// The one form-control recipe the inventory modals share, so a field in Add
-// looks identical to the same field in Edit. Matches SearchInput's input so the
-// toolbar and the modals read as one form language.
+// components/shared/fieldStyles.js
+// The one form-control recipe the admin modals share, so a field on Inventory
+// looks identical to the same field on Services. Matches SearchInput's input,
+// which is what ties the toolbars and the modals together.
 
 export const labelClass =
   "block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1";

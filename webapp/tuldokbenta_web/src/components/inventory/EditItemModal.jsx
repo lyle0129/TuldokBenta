@@ -8,7 +8,7 @@ import {
   noticeClass,
   cancelButtonClass,
   submitButtonClass,
-} from "./fieldStyles";
+} from "../shared/fieldStyles";
 
 /**
  * Correcting an item's details.

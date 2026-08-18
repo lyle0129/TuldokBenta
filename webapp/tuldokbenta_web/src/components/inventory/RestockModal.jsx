@@ -7,7 +7,7 @@ import {
   alertClass,
   cancelButtonClass,
   submitButtonClass,
-} from "./fieldStyles";
+} from "../shared/fieldStyles";
 
 /** Tap-sized shortcuts for the amounts a delivery usually arrives in. */
 const QUICK_AMOUNTS = [1, 5, 10, 50];

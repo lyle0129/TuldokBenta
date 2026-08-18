@@ -1,271 +1,201 @@
-// pages/Services.js
-import { useState } from "react";
+// pages/Services.jsx
+import { useMemo, useState } from "react";
+import { Plus } from "lucide-react";
 import { useServices } from "../hooks/useServices";
 import { useInventory } from "../hooks/useInventory";
+import SearchInput from "../components/shared/SearchInput";
+import ConfirmDialog from "../components/shared/ConfirmDialog";
+import ServicesList from "../components/services/ServicesList";
+import AddServiceModal from "../components/services/AddServiceModal";
+import EditServiceModal from "../components/services/EditServiceModal";
+import { alertClass } from "../components/shared/fieldStyles";
 
+/**
+ * The service catalog. Toolbar panel over list panel, same as Inventory and
+ * Closed Sales — this was the last page still rendering its own table and its
+ * own hand-rolled modal.
+ */
 const Services = () => {
-  const { services, isLoading, createService, updateService, deleteService } =
-    useServices();
+  const {
+    services,
+    isLoading,
+    error,
+    mutationError,
+    isMutating,
+    createService,
+    updateService,
+    deleteService,
+  } = useServices();
 
   // Only for the freebie classifications. Shares the Inventory page's cache
   // entry, so arriving from there costs no request.
   const { inventory } = useInventory();
 
-  const [newService, setNewService] = useState({
-    service_name: "",
-    price: 0,
-    freebies: [],
-  });
-
+  const [query, setQuery] = useState("");
+  const [isAdding, setIsAdding] = useState(false);
   const [editingService, setEditingService] = useState(null);
+  const [deletingService, setDeletingService] = useState(null);
 
-  const handleCreate = async () => {
-    if (!newService.service_name) return;
-    await createService(newService);
-    setNewService({ service_name: "", price: 0, freebies: [] });
+  /**
+   * Freebie options, with how many items back each one.
+   *
+   * Raw item_classification values, deliberately un-normalised: FreebieEditor
+   * matches them against inventory with a case-sensitive `===`, so prettifying
+   * them here would save a freebie that resolves to nothing at the till.
+   *
+   * Order follows first appearance in inventory, which now arrives in the
+   * admin's own sort_order.
+   */
+  const classifications = useMemo(() => {
+    const counts = new Map();
+    for (const item of inventory) {
+      const cls = item.item_classification;
+      if (!cls) continue;
+      counts.set(cls, (counts.get(cls) || 0) + 1);
+    }
+    return [...counts].map(([name, count]) => ({ name, count }));
+  }, [inventory]);
+
+  const term = query.trim().toLowerCase();
+
+  const visibleServices = useMemo(
+    () =>
+      services.filter((service) => {
+        if (!term) return true;
+        return (
+          service.service_name?.toLowerCase().includes(term) ||
+          (service.freebies || []).some((f) => f.toLowerCase().includes(term))
+        );
+      }),
+    [services, term]
+  );
+
+  const withFreebies = services.filter((s) => (s.freebies || []).length > 0)
+    .length;
+
+  // Each form closes only on success, so a rejected write leaves the modal
+  // open with the error rather than silently discarding what was typed.
+  const handleCreate = async (service) => {
+    if (await createService(service)) setIsAdding(false);
   };
 
-  const handleEditSave = async () => {
-    if (!editingService) return;
-    await updateService(editingService.id, editingService);
-    setEditingService(null);
+  const handleEditSave = async (id, updates) => {
+    if (await updateService(id, updates)) setEditingService(null);
   };
 
-  const classifications = [
-    ...new Set(inventory.map((item) => item.item_classification)),
-  ];
-
-  const toggleFreebie = (serviceObj, classification) => {
-    const alreadySelected = serviceObj.freebies.includes(classification);
-    const updated = alreadySelected
-      ? serviceObj.freebies.filter((c) => c !== classification)
-      : [...serviceObj.freebies, classification];
-    return { ...serviceObj, freebies: updated };
+  // Deleting used to fire straight from the row with no confirmation at all.
+  const handleDeleteConfirm = async () => {
+    if (!deletingService) return;
+    await deleteService(deletingService.id);
+    setDeletingService(null);
   };
+
+  const isFormOpen = isAdding || editingService !== null;
 
   return (
-    <div className="max-w-6xl mx-auto mt-10 p-4 sm:p-6">
-      <h1 className="text-3xl font-bold mb-6 text-gray-800 dark:text-gray-100">
+    <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
+      <h1 className="text-2xl sm:text-3xl font-bold mb-5 text-gray-800 dark:text-gray-100">
         Services
       </h1>
 
-      {/* Add Service Section */}
-      <div className="bg-white dark:bg-gray-800 shadow rounded-xl p-6 mb-8 transition">
-        <h2 className="text-lg font-semibold mb-4 text-gray-800 dark:text-gray-100">
-          Add New Service
-        </h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-          <div>
-            <label className="block text-sm font-medium mb-1 text-gray-600 dark:text-gray-300">
-              Service Name
-            </label>
-            <input
-              type="text"
-              placeholder="Service Name"
-              value={newService.service_name}
-              onChange={(e) =>
-                setNewService({ ...newService, service_name: e.target.value })
-              }
-              className="w-full border border-gray-300 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 rounded-md px-3 py-2 focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-1 text-gray-600 dark:text-gray-300">
-              Price
-            </label>
-            <input
-              type="number"
-              placeholder="₱0.00"
-              value={newService.price}
-              onChange={(e) =>
-                setNewService({ ...newService, price: +e.target.value })
-              }
-              className="w-full border border-gray-300 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 rounded-md px-3 py-2 focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
+      {/* Toolbar */}
+      <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-sm p-4 sm:p-6 mb-6 transition-colors space-y-4">
+        <div className="flex flex-col sm:flex-row gap-3">
+          <SearchInput
+            value={query}
+            onChange={setQuery}
+            placeholder="Search services…"
+            ariaLabel="Search services"
+            className="flex-1"
+          />
+          <button
+            type="button"
+            onClick={() => setIsAdding(true)}
+            className="flex items-center justify-center gap-2 px-6 min-h-11 rounded-md bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-semibold transition flex-shrink-0"
+          >
+            <Plus size={18} aria-hidden="true" />
+            New Service
+          </button>
         </div>
 
-        <div>
-          <label className="block text-sm font-medium mb-2 text-gray-600 dark:text-gray-300">
-            Freebies Included
-          </label>
-          <div className="flex flex-wrap gap-3">
-            {classifications.map((cls) => (
-              <label
-                key={cls}
-                className="flex items-center space-x-2 text-sm bg-gray-100 dark:bg-gray-700 px-3 py-1 rounded-md cursor-pointer"
-              >
-                <input
-                  type="checkbox"
-                  checked={newService.freebies.includes(cls)}
-                  onChange={() => setNewService(toggleFreebie(newService, cls))}
-                  className="accent-blue-600"
-                />
-                <span className="dark:text-gray-100">{cls}</span>
-              </label>
-            ))}
-          </div>
+        <div className="pt-1 border-t border-gray-200 dark:border-gray-700">
+          <p className="text-sm text-gray-600 dark:text-gray-400 pt-3">
+            <span className="font-semibold text-gray-800 dark:text-gray-100">
+              {services.length} {services.length === 1 ? "service" : "services"}
+            </span>
+            {withFreebies > 0 && (
+              <>
+                {" · "}
+                <span className="font-semibold text-green-700 dark:text-green-400">
+                  {withFreebies} with freebies
+                </span>
+              </>
+            )}
+          </p>
         </div>
-
-        <button
-          onClick={handleCreate}
-          className="mt-6 bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition w-full sm:w-auto"
-        >
-          Add Service
-        </button>
       </div>
 
-      {/* Services Table */}
-      {isLoading ? (
-        <p className="text-gray-600 dark:text-gray-300">Loading...</p>
-      ) : (
-        <div className="overflow-x-auto bg-white dark:bg-gray-800 rounded-xl shadow">
-          <table className="w-full border-collapse text-sm">
-            <thead className="bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200">
-              <tr>
-                <th className="p-3 border dark:border-gray-600">Name</th>
-                <th className="p-3 border dark:border-gray-600">Price</th>
-                <th className="p-3 border dark:border-gray-600">Freebies</th>
-                <th className="p-3 border dark:border-gray-600 text-center">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {services.map((service, idx) => (
-                <tr
-                  key={service.id}
-                  className={`${
-                    idx % 2 === 0
-                      ? "bg-white dark:bg-gray-800"
-                      : "bg-gray-50 dark:bg-gray-900"
-                  } hover:bg-gray-100 dark:hover:bg-gray-700 transition`}
-                >
-                  <td className="p-3 border dark:border-gray-700 text-gray-800 dark:text-gray-100">
-                    {service.service_name}
-                  </td>
-                  <td className="p-3 border dark:border-gray-700 text-gray-800 dark:text-gray-100">
-                    ₱{service.price}
-                  </td>
-                  <td className="p-3 border dark:border-gray-700 text-gray-700 dark:text-gray-200">
-                    {service.freebies?.length > 0
-                      ? service.freebies.join(", ")
-                      : "-"}
-                  </td>
-                  <td className="p-3 border dark:border-gray-700 text-center space-x-2">
-                    <button
-                      onClick={() => setEditingService(service)}
-                      className="bg-yellow-500 text-white px-3 py-1 rounded-md hover:bg-yellow-600"
-                    >
-                      Edit
-                    </button>
-                    <button
-                      onClick={() => deleteService(service.id)}
-                      className="bg-red-500 text-white px-3 py-1 rounded-md hover:bg-red-600"
-                    >
-                      Delete
-                    </button>
-                  </td>
-                </tr>
-              ))}
-              {services.length === 0 && (
-                <tr>
-                  <td
-                    colSpan="4"
-                    className="text-center p-6 text-gray-500 dark:text-gray-400 italic"
-                  >
-                    No services found
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {/* Edit Modal */}
-      {editingService && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50">
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-6 w-full max-w-md">
-            <h2 className="text-xl font-semibold mb-4 text-gray-800 dark:text-gray-100">
-              Edit Service
-            </h2>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium mb-1 text-gray-600 dark:text-gray-300">
-                  Service Name
-                </label>
-                <input
-                  type="text"
-                  value={editingService.service_name}
-                  onChange={(e) =>
-                    setEditingService({
-                      ...editingService,
-                      service_name: e.target.value,
-                    })
-                  }
-                  className="w-full border dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 px-3 py-2 rounded-md focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1 text-gray-600 dark:text-gray-300">
-                  Price
-                </label>
-                <input
-                  type="number"
-                  value={editingService.price}
-                  onChange={(e) =>
-                    setEditingService({
-                      ...editingService,
-                      price: +e.target.value,
-                    })
-                  }
-                  className="w-full border dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 px-3 py-2 rounded-md focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-2 text-gray-600 dark:text-gray-300">
-                  Freebies Included
-                </label>
-                <div className="flex flex-wrap gap-3">
-                  {classifications.map((cls) => (
-                    <label
-                      key={cls}
-                      className="flex items-center space-x-2 text-sm bg-gray-100 dark:bg-gray-700 px-3 py-1 rounded-md"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={editingService.freebies?.includes(cls)}
-                        onChange={() =>
-                          setEditingService(toggleFreebie(editingService, cls))
-                        }
-                        className="accent-blue-600"
-                      />
-                      <span className="dark:text-gray-100">{cls}</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            <div className="flex justify-end space-x-3 mt-6">
-              <button
-                onClick={() => setEditingService(null)}
-                className="px-5 py-2 bg-gray-300 dark:bg-gray-600 text-gray-800 dark:text-gray-100 rounded-md hover:bg-gray-400 dark:hover:bg-gray-500"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleEditSave}
-                className="px-5 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
-              >
-                Save
-              </button>
-            </div>
+      {/* List */}
+      <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-sm p-4 sm:p-6 transition-colors">
+        {mutationError && !isFormOpen && (
+          <div role="alert" className={`${alertClass} mb-4`}>
+            {mutationError}
           </div>
-        </div>
-      )}
+        )}
+
+        {isLoading ? (
+          <p className="py-10 text-center text-gray-500 dark:text-gray-400 animate-pulse">
+            Loading services…
+          </p>
+        ) : error ? (
+          <p
+            role="alert"
+            className="py-10 text-center text-red-700 dark:text-red-300"
+          >
+            {error}
+          </p>
+        ) : (
+          <ServicesList
+            services={visibleServices}
+            onEdit={setEditingService}
+            onDelete={setDeletingService}
+            emptyMessage={
+              services.length === 0
+                ? "No services yet. Add your first one above."
+                : `No services match “${query}”.`
+            }
+          />
+        )}
+      </div>
+
+      <AddServiceModal
+        open={isAdding}
+        onClose={() => setIsAdding(false)}
+        onSubmit={handleCreate}
+        classifications={classifications}
+        existingNames={services.map((s) => s.service_name)}
+        isSubmitting={isMutating}
+        errorMessage={mutationError}
+      />
+
+      <EditServiceModal
+        service={editingService}
+        onClose={() => setEditingService(null)}
+        onSubmit={handleEditSave}
+        classifications={classifications}
+        isSubmitting={isMutating}
+        errorMessage={mutationError}
+      />
+
+      <ConfirmDialog
+        open={deletingService !== null}
+        title="Delete Service"
+        message={`Delete “${deletingService?.service_name}”? This cannot be undone.`}
+        confirmLabel="Delete"
+        accent="red"
+        onConfirm={handleDeleteConfirm}
+        onCancel={() => setDeletingService(null)}
+      />
     </div>
   );
 };
