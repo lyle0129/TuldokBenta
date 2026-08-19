@@ -6,9 +6,18 @@
  * midnight-to-midnight, not UTC's. These tests pin the local-vs-UTC boundary
  * and the DST-safe day arithmetic.
  */
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import fc from "fast-check";
-import { todayISODate, toISODate, dayRange, shiftDay } from "../utils/dateRange";
+import {
+  todayISODate,
+  toISODate,
+  dayRange,
+  shiftDay,
+  rangeBounds,
+  localRangeBounds,
+  presetRange,
+  RANGE_PRESETS,
+} from "../utils/dateRange";
 
 describe("toISODate / todayISODate", () => {
   it("uses local calendar fields, not the UTC date", () => {
@@ -28,10 +37,10 @@ describe("toISODate / todayISODate", () => {
 });
 
 describe("dayRange", () => {
-  it("formats as 'YYYY-MM-DD HH:MM:SS' with no T or Z", () => {
+  it("formats as 'YYYY-MM-DD HH:MM:SS.mmm' with no T or Z", () => {
     const { lowdate, highdate } = dayRange("2026-08-17");
-    expect(lowdate).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);
-    expect(highdate).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);
+    expect(lowdate).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}$/);
+    expect(highdate).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}$/);
   });
 
   it("spans one local day, low before high", () => {
@@ -41,11 +50,16 @@ describe("dayRange", () => {
     );
   });
 
-  it("covers 23h59m59s — the whole day minus the final second", () => {
+  /**
+   * The server compares with an inclusive BETWEEN against columns that keep
+   * milliseconds, so stopping at 23:59:59 would drop a sale made in the last
+   * second of the day.
+   */
+  it("covers the whole day, down to the last millisecond", () => {
     const { lowdate, highdate } = dayRange("2026-08-17");
     const spanMs =
       new Date(`${highdate}Z`).getTime() - new Date(`${lowdate}Z`).getTime();
-    expect(spanMs).toBe(23 * 3600_000 + 59 * 60_000 + 59_000);
+    expect(spanMs).toBe(24 * 3600_000 - 1);
   });
 
   it("starts at the caller's local midnight", () => {
@@ -55,6 +69,96 @@ describe("dayRange", () => {
     expect(asLocal.getHours()).toBe(0);
     expect(asLocal.getMinutes()).toBe(0);
     expect(toISODate(asLocal)).toBe("2026-08-17");
+  });
+});
+
+describe("rangeBounds", () => {
+  it("spans from the first day's local midnight to the last day's last second", () => {
+    const { lowdate, highdate } = rangeBounds("2026-08-17", "2026-08-19");
+    const start = new Date(`${lowdate}Z`);
+    const end = new Date(`${highdate}Z`);
+
+    expect(toISODate(start)).toBe("2026-08-17");
+    expect(start.getHours()).toBe(0);
+    expect(toISODate(end)).toBe("2026-08-19");
+    expect(end.getHours()).toBe(23);
+  });
+
+  it("collapses to dayRange when both ends are the same day", () => {
+    expect(rangeBounds("2026-08-17", "2026-08-17")).toEqual(dayRange("2026-08-17"));
+  });
+
+  /**
+   * The sale timestamps are stored in UTC while the shop keeps its own clock,
+   * so the window the server is asked for has to be the shop's midnight
+   * expressed in UTC — not UTC's own midnight. This is the conversion the whole
+   * day-attribution rests on.
+   */
+  it("sends the shop's midnight, converted to UTC", () => {
+    const { lowdate } = rangeBounds("2026-08-17", "2026-08-17");
+    const asInstant = new Date(`${lowdate}Z`);
+    // Read back in local time it must land exactly on the requested midnight.
+    expect(toISODate(asInstant)).toBe("2026-08-17");
+    expect(asInstant.getHours()).toBe(0);
+    expect(asInstant.getMinutes()).toBe(0);
+  });
+
+  /** The browser-side and server-side windows must describe the same span. */
+  it("agrees with localRangeBounds to the millisecond", () => {
+    const { start, end } = localRangeBounds("2026-08-17", "2026-08-19");
+    const { lowdate, highdate } = rangeBounds("2026-08-17", "2026-08-19");
+
+    expect(new Date(`${lowdate}Z`).getTime()).toBe(start.getTime());
+    expect(new Date(`${highdate}Z`).getTime()).toBe(end.getTime());
+  });
+});
+
+describe("presetRange", () => {
+  afterEach(() => vi.useRealTimers());
+
+  /**
+   * The bug this pins: the old quick-filter took its date from
+   * `toISOString()`, so in UTC+8 every morning before 08:00 it selected
+   * *yesterday* — the report opened on the wrong day for the first eight hours
+   * of every trading day.
+   */
+  it("picks the local day, not the UTC one, early in the morning", () => {
+    // 07:00 local on 2026-08-19. Anywhere ahead of UTC, the UTC date here is
+    // still the 18th.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 7, 19, 7, 0));
+
+    const expected = toISODate(new Date(2026, 7, 19));
+    expect(presetRange("today")).toEqual({ from: expected, to: expected });
+  });
+
+  it("spans 7 and 30 days inclusive of today", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 7, 19, 12));
+
+    expect(presetRange("7d")).toEqual({ from: "2026-08-13", to: "2026-08-19" });
+    expect(presetRange("30d")).toEqual({ from: "2026-07-21", to: "2026-08-19" });
+  });
+
+  it("starts 'this month' on the first, even mid-month", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 7, 19, 12));
+
+    expect(presetRange("month")).toEqual({ from: "2026-08-01", to: "2026-08-19" });
+  });
+
+  it("never returns a range ending in the future", () => {
+    const today = todayISODate();
+    for (const { id } of RANGE_PRESETS) {
+      const { from, to } = presetRange(id);
+      expect(to).toBe(today);
+      expect(from <= to).toBe(true);
+    }
+  });
+
+  it("falls back to today for an unknown preset", () => {
+    const today = todayISODate();
+    expect(presetRange("nonsense")).toEqual({ from: today, to: today });
   });
 });
 

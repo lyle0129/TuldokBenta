@@ -1,7 +1,7 @@
 /**
  * Feature: database-driven payment methods
  * Subject: utils/paymentMethods.js, components/sales-modals/PaySaleModal.jsx,
- *          components/reporting/ClosedSalesTotal.jsx
+ *          utils/reportMetrics.js, components/charts/PaymentBreakdownChart.jsx
  *
  * The list of payment methods moved out of two hardcoded <option> tags and into
  * a table. Two properties have to hold for that to be safe:
@@ -9,15 +9,16 @@
  *   1. The wire format did not change — the modal still hands `onConfirm` the
  *      bare code string that goes straight into `paid_using`.
  *   2. A method the code has never heard of is rendered everywhere, rather than
- *      being silently dropped. ClosedSalesTotal used to hold `{cash, gcash}` and
- *      contribute ₱0 for anything else, which is the bug this pins.
+ *      being silently dropped. The report's payment panel used to hold
+ *      `{cash, gcash}` and contribute ₱0 for anything else — the bug this pins.
  */
 import React from "react";
 import { screen, waitFor, fireEvent } from "@testing-library/react";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { slugifyCode, resolveMethod, buildMethodLookup } from "../utils/paymentMethods";
 import PaySaleModal from "../components/sales-modals/PaySaleModal";
-import ClosedSalesTotal from "../components/reporting/ClosedSalesTotal";
+import PaymentBreakdownChart from "../components/charts/PaymentBreakdownChart";
+import { paymentBreakdown } from "../utils/reportMetrics";
 import { renderWithQuery } from "./utils/renderWithQuery.jsx";
 
 const METHODS = [
@@ -128,8 +129,7 @@ describe("PaySaleModal", () => {
   });
 });
 
-describe("ClosedSalesTotal", () => {
-  const formatCurrency = (v) => `P${Number(v).toFixed(2)}`;
+describe("payment totals in the report", () => {
   const sale = (paid_using, price) => ({
     id: Math.random(),
     paid_using,
@@ -137,51 +137,51 @@ describe("ClosedSalesTotal", () => {
   });
 
   /**
-   * The regression this change exists for: the panel held `{cash: 0, gcash: 0}`
-   * and rendered two cards, so a third method's revenue vanished from it.
+   * The regression this change exists for: the old panel held `{cash: 0,
+   * gcash: 0}` and rendered two cards, so a third method's revenue vanished.
+   * paymentBreakdown keys off whatever `paid_using` actually holds, so there is
+   * no fixed set of methods left to fall outside of.
    */
-  it("gives a method added at runtime its own total", async () => {
+  it("gives a method added at runtime its own total", () => {
+    const breakdown = paymentBreakdown([
+      sale("cash", 100),
+      sale("gcash", 50),
+      sale("maya", 75),
+    ]);
+
+    expect(breakdown.maya).toEqual({ count: 1, total: 75 });
+    expect(breakdown.cash).toEqual({ count: 1, total: 100 });
+    expect(breakdown.gcash).toEqual({ count: 1, total: 50 });
+  });
+
+  /** A code with no row at all still has to carry its money somewhere. */
+  it("keeps codes with no configured method rather than dropping them", () => {
+    const breakdown = paymentBreakdown([
+      sale("cash", 100),
+      sale("old-card", 30),
+      sale("deleted-one", 20),
+    ]);
+
+    expect(breakdown["old-card"]).toEqual({ count: 1, total: 30 });
+    expect(breakdown["deleted-one"]).toEqual({ count: 1, total: 20 });
+  });
+
+  it("labels every method it was given, configured or not", async () => {
     mockMethodsFetch();
     renderWithQuery(
-      <ClosedSalesTotal
-        closedSales={[sale("cash", 100), sale("gcash", 50), sale("maya", 75)]}
-        formatCurrency={formatCurrency}
+      <PaymentBreakdownChart
+        paymentMethodBreakdown={paymentBreakdown([
+          sale("cash", 100),
+          sale("maya", 75),
+          sale("deleted-one", 20),
+        ])}
       />
     );
 
     await waitFor(() => expect(screen.getByText("Maya")).toBeTruthy());
-    expect(screen.getByText("P75.00")).toBeTruthy();
-    expect(screen.getByText("P100.00")).toBeTruthy();
-    expect(screen.getByText("P50.00")).toBeTruthy();
-  });
-
-  it("sums codes with no active method into a trailing Other card", async () => {
-    mockMethodsFetch();
-    renderWithQuery(
-      <ClosedSalesTotal
-        closedSales={[sale("cash", 100), sale("old-card", 30), sale("deleted-one", 20)]}
-        formatCurrency={formatCurrency}
-      />
-    );
-
-    // Wait for the method cards, not for "Other" — before the list loads every
-    // code is unrecognised, so an "Other" card exists from the first render.
-    await waitFor(() => expect(screen.getByText("Cash")).toBeTruthy());
-    expect(screen.getByText("Other")).toBeTruthy();
-    // 30 from the deactivated method + 20 from one with no row at all.
-    expect(screen.getByText("P50.00")).toBeTruthy();
-  });
-
-  it("omits the Other card when every sale maps to an active method", async () => {
-    mockMethodsFetch();
-    renderWithQuery(
-      <ClosedSalesTotal
-        closedSales={[sale("cash", 100), sale("maya", 20)]}
-        formatCurrency={formatCurrency}
-      />
-    );
-
-    await waitFor(() => expect(screen.getByText("Maya")).toBeTruthy());
-    expect(screen.queryByText("Other")).toBeNull();
+    expect(screen.getByText("Cash")).toBeTruthy();
+    // Title-cased from the bare code, so the ₱20 stays attributable.
+    expect(screen.getByText("Deleted One")).toBeTruthy();
+    expect(screen.getByText("₱20.00")).toBeTruthy();
   });
 });

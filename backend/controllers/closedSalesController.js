@@ -2,11 +2,19 @@ import { sql } from "../config/db.js";
 
 export const getClosedSales = async (req, res) => {
   try {
-    const { lowdate, highdate } = req.query;
+    const { lowdate, highdate, datefield } = req.query;
 
-    const dateFilter = (lowdate && highdate)
-      ? sql` AND paid_at BETWEEN ${lowdate} AND ${highdate} `
-      : sql``;
+    // `paid_at` is the default because a closed sale's date *is* the day the
+    // money arrived; `created_at` is offered only so the report can also ask
+    // "what was written in this range", which no other caller needs.
+    //
+    // The two branches are literal fragments rather than an interpolated
+    // identifier, so the column can never come from the query string.
+    const dateFilter = !(lowdate && highdate)
+      ? sql``
+      : datefield === "created_at"
+      ? sql` AND created_at BETWEEN ${lowdate} AND ${highdate} `
+      : sql` AND paid_at BETWEEN ${lowdate} AND ${highdate} `;
 
     const sales =
       await sql`SELECT * FROM closed_sales WHERE 1=1 ${dateFilter} ORDER BY paid_at DESC`;

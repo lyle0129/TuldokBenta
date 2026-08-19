@@ -2,7 +2,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "../api";
 import { queryKeys, staleTimes } from "../queryClient";
-import { dayRange } from "../utils/dateRange";
+import { dayRange, rangeBounds } from "../utils/dateRange";
 
 /**
  * Sales reads, split by what each page actually renders.
@@ -75,6 +75,44 @@ export const useClosedSalesForDay = (isoDate) => {
 
   return {
     closedSalesbyDate: data ?? [],
+    isLoading,
+    isFetching,
+    error: error?.message ?? null,
+  };
+};
+
+/**
+ * A span of closed sales, selected by one of the two dates a sale carries.
+ *
+ * Reporting needs both readings of the same range and they are not the same
+ * set: "paid_at" is the cash actually taken in the range, "created_at" is the
+ * business written in it. A sale opened Monday and paid Tuesday belongs to
+ * Tuesday by the first and Monday by the second.
+ *
+ * The unranged useClosedSales() above stays for the invoice-number maximum;
+ * this is what the report reads, so a growing table no longer means a growing
+ * download.
+ *
+ * @param {string} from "YYYY-MM-DD", inclusive
+ * @param {string} to   "YYYY-MM-DD", inclusive
+ * @param {"paid_at"|"created_at"} dateField
+ */
+export const useClosedSalesInRange = (from, to, dateField = "paid_at") => {
+  const { data, isLoading, isFetching, error } = useQuery({
+    queryKey: queryKeys.closedSalesRange(from, to, dateField),
+    queryFn: ({ signal }) => {
+      const { lowdate, highdate } = rangeBounds(from, to);
+      return apiRequest(
+        `/closed-sales?lowdate=${lowdate}&highdate=${highdate}&datefield=${dateField}`,
+        { signal }
+      );
+    },
+    staleTime: staleTimes.sales,
+    enabled: Boolean(from && to),
+  });
+
+  return {
+    closedSales: data ?? [],
     isLoading,
     isFetching,
     error: error?.message ?? null,

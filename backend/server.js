@@ -1,3 +1,8 @@
+// First, and before any other import: ES module imports are evaluated before a
+// module's own statements, so pinning the zone here rather than in a top-level
+// assignment is what guarantees it happens before the DB driver loads.
+import "./config/timezone.js";
+
 import dotenv from "dotenv";
 dotenv.config();
 

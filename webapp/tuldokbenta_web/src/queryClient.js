@@ -27,6 +27,15 @@ export const queryKeys = {
   closedSales: ["closedSales"],
   closedSalesAll: ["closedSales", "all"],
   closedSalesDay: (isoDate) => ["closedSales", "day", isoDate],
+  // The date field is part of the key: the same span asked by payment date and
+  // by creation date are two different answers, not one cache entry.
+  closedSalesRange: (from, to, field) => [
+    "closedSales",
+    "range",
+    field,
+    from,
+    to,
+  ],
 };
 
 /**
