@@ -252,6 +252,12 @@ const ReportSalesList = ({
                       )}
                     </div>
 
+                    {sale.customer_name && (
+                      <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mt-1">
+                        {sale.customer_name}
+                      </p>
+                    )}
+
                     <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
                       Opened {formatDateTime(sale.created_at)}
                       {sale.settled ? (

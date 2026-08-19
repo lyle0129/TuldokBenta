@@ -184,7 +184,7 @@ const ReportToolbar = ({ value, onChange, onReset, sales = [], summary }) => {
       <SearchInput
         value={value.query}
         onChange={(query) => set({ query })}
-        placeholder="Search invoice, service, item, or payment…"
+        placeholder="Search invoice, customer, item, or payment…"
         ariaLabel="Search sales"
       />
 

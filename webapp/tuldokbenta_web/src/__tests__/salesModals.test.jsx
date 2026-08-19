@@ -82,6 +82,53 @@ describe("EditSaleModal", () => {
     expect(reducer(mockSale).items[0].qty).toBe(1);
   });
 
+  // Every sale taken before the field existed has customer_name === null, so
+  // an empty box is the normal starting state rather than a missing value.
+  it("leaves the customer box empty for a sale that has no name", () => {
+    render(<EditSaleModal {...makeProps()} />);
+    expect(screen.getByLabelText(/customer/i)).toHaveValue("");
+  });
+
+  it("shows the sale's existing customer name", () => {
+    render(
+      <EditSaleModal
+        {...makeProps({ sale: { ...mockSale, customer_name: "Maria Santos" } })}
+      />
+    );
+    expect(screen.getByLabelText(/customer/i)).toHaveValue("Maria Santos");
+  });
+
+  it("stages a customer name onto the sale", () => {
+    const onUpdate = vi.fn();
+    render(<EditSaleModal {...makeProps({ onUpdate })} />);
+
+    fireEvent.change(screen.getByLabelText(/customer/i), {
+      target: { value: "Maria Santos" },
+    });
+
+    const reducer = onUpdate.mock.calls[0][0];
+    expect(reducer(mockSale).customer_name).toBe("Maria Santos");
+    // The lines are untouched — this is not a line edit.
+    expect(reducer(mockSale).items).toEqual(mockSale.items);
+  });
+
+  // Emptying the box has to reach the server as "" so it can clear the column;
+  // dropping the key would mean the old name silently stayed.
+  it("keeps an emptied customer name as a real edit", () => {
+    const onUpdate = vi.fn();
+    const named = { ...mockSale, customer_name: "Maria Santos" };
+    render(<EditSaleModal {...makeProps({ sale: named, onUpdate })} />);
+
+    fireEvent.change(screen.getByLabelText(/customer/i), {
+      target: { value: "" },
+    });
+
+    const reducer = onUpdate.mock.calls[0][0];
+    const staged = reducer(named);
+    expect(staged.customer_name).toBe("");
+    expect("customer_name" in staged).toBe(true);
+  });
+
   it("shows the server's error message instead of failing silently", () => {
     render(
       <EditSaleModal {...makeProps({ errorMessage: "Not enough stock for Detergent" })} />

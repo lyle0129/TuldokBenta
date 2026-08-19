@@ -7,6 +7,7 @@ import {
   validateItems,
   assertStockAvailable,
   toErrorResponse,
+  normalizeCustomerName,
 } from "./saleItems.js";
 
 const item = (name, qty) => ({ type: "item", item_name: name, qty });
@@ -191,5 +192,33 @@ describe("toErrorResponse", () => {
       status: 500,
       message: "Internal Server Error",
     });
+  });
+});
+
+describe("normalizeCustomerName", () => {
+  test("keeps a real name, trimmed", () => {
+    assert.equal(normalizeCustomerName("  Maria Santos "), "Maria Santos");
+  });
+
+  test("collapses every flavour of 'no customer' to null", () => {
+    // One representation, so `{name && ...}` in the UI can't be true for a
+    // sale that displays nothing.
+    for (const blank of [undefined, null, "", "   ", "\t\n"]) {
+      assert.equal(normalizeCustomerName(blank), null);
+    }
+  });
+
+  test("rejects a non-string", () => {
+    assert.throws(() => normalizeCustomerName(42), { status: 400 });
+    assert.throws(() => normalizeCustomerName({}), { status: 400 });
+  });
+
+  test("rejects a name longer than the column", () => {
+    assert.equal(normalizeCustomerName("a".repeat(255)).length, 255);
+    assert.throws(() => normalizeCustomerName("a".repeat(256)), { status: 400 });
+  });
+
+  test("measures length after trimming, not before", () => {
+    assert.equal(normalizeCustomerName(`  ${"a".repeat(255)}  `).length, 255);
   });
 });

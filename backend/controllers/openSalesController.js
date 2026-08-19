@@ -5,6 +5,7 @@ import {
   assertStockAvailable,
   toErrorResponse,
   badRequest,
+  normalizeCustomerName,
 } from "../utils/saleItems.js";
 
 /**
@@ -70,6 +71,7 @@ export const createOpenSale = async (req, res) => {
     if (!invoice_number) {
       return res.status(400).json({ message: "Invoice number is required" });
     }
+    const customerName = normalizeCustomerName(req.body.customer_name);
     validateItems(items);
     if (items.length === 0) {
       throw badRequest("A sale must have at least one item");
@@ -82,8 +84,8 @@ export const createOpenSale = async (req, res) => {
     // the INSERT fail *after* stock had already been taken, destroying it.
     const results = await applyStockAndSale(deltas, [
       sql`
-        INSERT INTO open_sales (invoice_number, items)
-        VALUES (${invoice_number}, ${JSON.stringify(items)})
+        INSERT INTO open_sales (invoice_number, items, customer_name)
+        VALUES (${invoice_number}, ${JSON.stringify(items)}, ${customerName})
         RETURNING *
       `,
     ]);
@@ -109,6 +111,15 @@ export const updateOpenSale = async (req, res) => {
       return res.status(404).json({ message: "Sale not found" });
     }
 
+    // Presence, not COALESCE. The idiom elsewhere in this codebase treats NULL
+    // as "leave it alone", which makes clearing a value impossible — fine for
+    // an item's classification, wrong for a name a cashier typed by mistake.
+    // Omitting the key entirely still means "don't touch it", so a caller that
+    // knows nothing about customers can't blank one out.
+    const nextCustomerName = Object.hasOwn(req.body, "customer_name")
+      ? normalizeCustomerName(req.body.customer_name)
+      : existingSale[0].customer_name;
+
     // Net delta, not restock-everything-then-deduct-everything. The old
     // approach committed the restock before validating the new lines, so a
     // rejected edit left inventory credited for a sale that never changed.
@@ -118,7 +129,8 @@ export const updateOpenSale = async (req, res) => {
     const results = await applyStockAndSale(deltas, [
       sql`
         UPDATE open_sales
-        SET items = ${JSON.stringify(items)}
+        SET items = ${JSON.stringify(items)},
+            customer_name = ${nextCustomerName}
         WHERE id = ${id}
         RETURNING *
       `,
@@ -187,8 +199,8 @@ export const paySale = async (req, res) => {
     // tables and be paid twice.
     await sql.transaction([
       sql`
-        INSERT INTO closed_sales (invoice_number, items, created_at, paid_at, paid_using)
-        VALUES (${s.invoice_number}, ${JSON.stringify(s.items)}, ${s.created_at}, ${paidAt}, ${paid_using})
+        INSERT INTO closed_sales (invoice_number, items, created_at, paid_at, paid_using, customer_name)
+        VALUES (${s.invoice_number}, ${JSON.stringify(s.items)}, ${s.created_at}, ${paidAt}, ${paid_using}, ${s.customer_name ?? null})
       `,
       sql`DELETE FROM open_sales WHERE id = ${id}`,
     ]);
@@ -210,8 +222,8 @@ export const revertSale = async (req, res) => {
 
     await sql.transaction([
       sql`
-        INSERT INTO open_sales (invoice_number, items, created_at, paid_at, paid_using)
-        VALUES (${s.invoice_number}, ${JSON.stringify(s.items)}, ${s.created_at}, ${null}, ${null})
+        INSERT INTO open_sales (invoice_number, items, created_at, paid_at, paid_using, customer_name)
+        VALUES (${s.invoice_number}, ${JSON.stringify(s.items)}, ${s.created_at}, ${null}, ${null}, ${s.customer_name ?? null})
       `,
       sql`DELETE FROM closed_sales WHERE id = ${id}`,
     ]);

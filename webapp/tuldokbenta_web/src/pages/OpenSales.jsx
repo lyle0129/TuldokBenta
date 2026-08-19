@@ -28,6 +28,7 @@ const OpenSales = () => {
     useSaleMutations();
 
   const [nextInvoice, setNextInvoice] = useState("INV-0001");
+  const [customerName, setCustomerName] = useState("");
   const [showCart, setShowCart] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [checkoutError, setCheckoutError] = useState(null);
@@ -78,7 +79,11 @@ const OpenSales = () => {
     setIsSubmitting(true);
     setCheckoutError(null);
 
-    const sale = { invoice_number: nextInvoice, items: buildSaleItems(cart) };
+    const sale = {
+      invoice_number: nextInvoice,
+      items: buildSaleItems(cart),
+      customer_name: customerName.trim() || null,
+    };
     const { ok, message } = await createOpenSale(sale);
 
     setIsSubmitting(false);
@@ -86,6 +91,8 @@ const OpenSales = () => {
       // Stock changed server-side, but the mutation already invalidated the
       // inventory cache — no manual refetch needed.
       clearCart();
+      // Belongs to the sale that just closed, not to the next customer.
+      setCustomerName("");
       setShowCart(false);
     } else {
       // Surfaced in the cart sheet rather than an alert(), so the cashier can
@@ -158,6 +165,8 @@ const OpenSales = () => {
         onChangeFreebieItem={updateFreebieChoice}
         onChangeFreebieQty={updateFreebieQuantity}
         onRemoveFreebieChoice={removeFreebieChoice}
+        customerName={customerName}
+        onCustomerNameChange={setCustomerName}
         onCheckout={handleCheckout}
         checkoutLabel={`Open Sale ${nextInvoice}`}
         isSubmitting={isSubmitting}

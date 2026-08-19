@@ -55,6 +55,23 @@ afterEach(() => {
 /** An arbitrary non-null, non-undefined string suitable for an invoice field. */
 const safeString = fc.string({ minLength: 1, maxLength: 40 })
 
+/**
+ * What a name looks like once it reaches the page.
+ *
+ * printInvoice builds HTML by concatenation, so every value a person typed is
+ * escaped on the way in — the invoice number is hand-editable on the offline
+ * page and the customer name is free text. "Appears on the receipt" therefore
+ * means "appears escaped", which is what these properties check. That the
+ * escaping actually happens at all is pinned separately below.
+ */
+const escaped = (value) =>
+  String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+
 /** An arbitrary item of type "item". */
 const itemTypeArb = fc.record({
   type: fc.constant('item'),
@@ -134,7 +151,7 @@ describe('Property 1 — invoice output contains required fields', () => {
         async (sale) => {
           const html = await renderSale(sale)
           // The invoice number must appear
-          if (!html.includes(sale.invoice_number)) return false
+          if (!html.includes(escaped(sale.invoice_number))) return false
           // The created_at date, rendered via toLocaleString, must result in
           // the new Date() object being used — we verify the raw timestamp
           // string is fed into the template by checking the invoice number
@@ -161,9 +178,9 @@ describe('Property 2 — invoice uses correct name field per item type', () => {
           const html = await renderSale(sale)
           for (const it of sale.items) {
             if (it.type === 'service') {
-              if (!html.includes(it.service_name)) return false
+              if (!html.includes(escaped(it.service_name))) return false
             } else {
-              if (!html.includes(it.item_name)) return false
+              if (!html.includes(escaped(it.item_name))) return false
             }
           }
           return true
@@ -171,6 +188,48 @@ describe('Property 2 — invoice uses correct name field per item type', () => {
       ),
       { numRuns: 100 }
     )
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Customer name — optional, so the line has to be absent rather than empty
+// ---------------------------------------------------------------------------
+describe('customer name', () => {
+  it('prints the customer when the sale has one', async () => {
+    const html = await renderSale({
+      invoice_number: 'INV-0001',
+      created_at: '2026-01-01T00:00:00.000Z',
+      customer_name: 'Maria Santos',
+      items: [{ type: 'item', item_name: 'Ariel', price: 50, qty: 1 }],
+    })
+    expect(html).toContain('Customer: Maria Santos')
+  })
+
+  it.each([undefined, null, ''])(
+    'omits the customer line when the name is %p',
+    async (customer_name) => {
+      const html = await renderSale({
+        invoice_number: 'INV-0001',
+        created_at: '2026-01-01T00:00:00.000Z',
+        customer_name,
+        items: [{ type: 'item', item_name: 'Ariel', price: 50, qty: 1 }],
+      })
+      expect(html).not.toContain('Customer:')
+    }
+  )
+
+  // The receipt is assembled as a string and handed to document.write, so a
+  // name with a "<" in it would otherwise open a tag and swallow the total.
+  it('escapes markup in the customer name instead of emitting it', async () => {
+    const html = await renderSale({
+      invoice_number: 'INV-0001',
+      created_at: '2026-01-01T00:00:00.000Z',
+      customer_name: '<script>alert(1)</script>',
+      items: [{ type: 'item', item_name: 'Ariel', price: 50, qty: 1 }],
+    })
+    expect(html).not.toContain('<script>')
+    expect(html).toContain('&lt;script&gt;')
+    expect(html).toContain('Total') // the rest of the receipt survived
   })
 })
 

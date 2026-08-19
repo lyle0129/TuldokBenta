@@ -84,6 +84,35 @@ export const badRequest = (message) => {
   return error;
 };
 
+/** The column's own width, so an over-long name is a 400 and not a 22001. */
+const CUSTOMER_NAME_MAX = 255;
+
+/**
+ * Normalises a customer name to what the column should hold.
+ *
+ * "No customer" has exactly one representation — NULL — so a name that is
+ * absent, null, empty or nothing but spaces all collapse to the same thing.
+ * Otherwise a sale saved with a stray space reads as named everywhere it is
+ * rendered with `{name && ...}` while displaying nothing.
+ *
+ * Note this does *not* distinguish absent from cleared; callers that need to
+ * tell "leave it alone" from "wipe it" check for the key themselves before
+ * calling. See updateOpenSale.
+ */
+export const normalizeCustomerName = (value) => {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== "string") {
+    throw badRequest("Customer name must be text");
+  }
+  const trimmed = value.trim();
+  if (trimmed.length > CUSTOMER_NAME_MAX) {
+    throw badRequest(
+      `Customer name is too long — ${CUSTOMER_NAME_MAX} characters at most`
+    );
+  }
+  return trimmed || null;
+};
+
 /**
  * Turns a thrown error into an { status, message } pair for the response.
  *

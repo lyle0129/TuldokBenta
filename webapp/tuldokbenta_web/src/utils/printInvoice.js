@@ -1,8 +1,26 @@
 /**
+ * Escapes text destined for the receipt markup below.
+ *
+ * This file builds HTML by string concatenation and hands it to
+ * document.write, so every value that a person typed has to go through here.
+ * The customer name is free text, and so is the invoice number — the offline
+ * page lets it be edited by hand. A name containing "<" would otherwise open a
+ * tag and eat the rest of the receipt.
+ */
+const escapeHtml = (value) =>
+  String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+
+/**
  * Opens a new browser tab and renders a thermal-receipt HTML page.
  *
  * @param {Object} sale
  * @param {string}  sale.invoice_number
+ * @param {string}  [sale.customer_name] - printed only if present and non-empty
  * @param {string}  sale.created_at      - ISO timestamp
  * @param {string}  [sale.paid_at]       - ISO timestamp; included only if present and non-null
  * @param {Array}   sale.items
@@ -34,7 +52,7 @@ export function printInvoice(sale) {
               .map(
                 (c) =>
                   `<div style="display:flex;justify-content:space-between;padding-left:10px;font-size:11px;">
-                    <span>+ ${c.item} x${c.qty}</span>
+                    <span>+ ${escapeHtml(c.item)} x${escapeHtml(c.qty)}</span>
                     <span>FREE</span>
                   </div>`
               )
@@ -46,7 +64,7 @@ export function printInvoice(sale) {
       return `
         <div style="margin-bottom:4px;">
           <div style="display:flex;justify-content:space-between;">
-            <span>${itemName} x${qty}</span>
+            <span>${escapeHtml(itemName)} x${escapeHtml(qty)}</span>
             <span>${price}</span>
           </div>
           ${freebiesHtml}
@@ -68,7 +86,7 @@ export function printInvoice(sale) {
   newPage.document.write(`
     <html>
       <head>
-        <title>Invoice #${sale.invoice_number}</title>
+        <title>Invoice #${escapeHtml(sale.invoice_number)}</title>
         <style>
           body {
             font-family: monospace;
@@ -99,7 +117,12 @@ export function printInvoice(sale) {
           <p style="margin:0;">Mo: 0962-683-7430</p>
         </div>
 
-        <p>Invoice #: ${sale.invoice_number}</p>
+        <p>Invoice #: ${escapeHtml(sale.invoice_number)}</p>
+        ${
+          sale.customer_name
+            ? `<p>Customer: ${escapeHtml(sale.customer_name)}</p>`
+            : ""
+        }
         <p>Date: ${new Date(sale.created_at).toLocaleString()}</p>
         ${
           sale.paid_at

@@ -129,7 +129,7 @@ export const useClosedSalesWindow = (from, to) => {
 };
 
 /**
- * The six sale mutations, each invalidating exactly what the server changed.
+ * The seven sale mutations, each invalidating exactly what the server changed.
  *
  * The invalidation map is taken from the controllers, not guessed:
  * creating, editing and deleting an open sale move stock in the same
@@ -193,6 +193,17 @@ export const useSaleMutations = () => {
     onSuccess: bothSaleTables,
   });
 
+  // Customer name only — the endpoint refuses to touch anything else, so no
+  // stock moved and the inventory cache stays good.
+  const updateClosedMutation = useMutation({
+    mutationFn: ({ id, customer_name }) =>
+      apiRequest(`/closed-sales/${id}`, {
+        method: "PUT",
+        body: { customer_name },
+      }),
+    onSuccess: () => invalidate([queryKeys.closedSales]),
+  });
+
   const deleteClosedMutation = useMutation({
     mutationFn: (id) => apiRequest(`/closed-sales/${id}`, { method: "DELETE" }),
     onSuccess: () => invalidate([queryKeys.closedSales]),
@@ -207,6 +218,12 @@ export const useSaleMutations = () => {
     paySale: (id, paid_using) =>
       run(payMutation, { id, paid_using }, "Failed to pay sale"),
     revertSale: (id) => run(revertMutation, id, "Failed to revert sale"),
+    updateClosedSale: (id, customer_name) =>
+      run(
+        updateClosedMutation,
+        { id, customer_name },
+        "Failed to update closed sale"
+      ),
     deleteClosedSale: (id) =>
       run(deleteClosedMutation, id, "Failed to delete closed sale"),
   };

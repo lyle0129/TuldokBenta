@@ -18,7 +18,7 @@ const ClosedSales = () => {
   // can't overwrite the one on screen.
   const { closedSalesbyDate, isLoading, error } =
     useClosedSalesForDay(selectedDate);
-  const { revertSale } = useSaleMutations();
+  const { revertSale, updateClosedSale } = useSaleMutations();
 
   const visibleSales = useMemo(
     () => filterSales(closedSalesbyDate, query),
@@ -55,7 +55,7 @@ const ClosedSales = () => {
           <SearchInput
             value={query}
             onChange={setQuery}
-            placeholder="Search invoice, item, or payment…"
+            placeholder="Search invoice, customer, item, or payment…"
             ariaLabel="Search closed sales"
             className="w-full sm:w-80 sm:ml-auto"
           />
@@ -82,6 +82,8 @@ const ClosedSales = () => {
             // revertSale invalidates the ["closedSales"] prefix, so the day on
             // screen refetches itself — no need to re-request it by hand.
             revertSale={revertSale}
+            // Same invalidation, so the named row refetches itself too.
+            updateClosedSale={updateClosedSale}
             // Lets the list tell "nothing happened that day" apart from
             // "nothing matched what you typed".
             emptyMessage={

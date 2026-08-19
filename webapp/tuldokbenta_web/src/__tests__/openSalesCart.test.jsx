@@ -234,6 +234,37 @@ describe("CartModal", () => {
     expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
 
+  // The sheet is shared by the online and offline pages, so this one field is
+  // where a customer name is taken for both.
+  it("reports the customer name as it is typed", () => {
+    const onCustomerNameChange = vi.fn();
+    render(<CartModal {...makeProps({ onCustomerNameChange })} />);
+
+    fireEvent.change(screen.getByLabelText(/customer/i), {
+      target: { value: "Maria Santos" },
+    });
+    expect(onCustomerNameChange).toHaveBeenCalledWith("Maria Santos");
+  });
+
+  it("shows the name it was given", () => {
+    render(
+      <CartModal
+        {...makeProps({
+          customerName: "Maria Santos",
+          onCustomerNameChange: vi.fn(),
+        })}
+      />
+    );
+    expect(screen.getByLabelText(/customer/i)).toHaveValue("Maria Santos");
+  });
+
+  // Purely presentational: a caller that doesn't collect a name gets no field
+  // rather than a dead one.
+  it("omits the field when no handler is given", () => {
+    render(<CartModal {...makeProps()} />);
+    expect(screen.queryByLabelText(/customer/i)).not.toBeInTheDocument();
+  });
+
   it("steps quantity up and down", () => {
     const onUpdateQuantity = vi.fn();
     render(<CartModal {...makeProps({ onUpdateQuantity })} />);

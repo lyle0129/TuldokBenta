@@ -1,4 +1,5 @@
 import { sql } from "../config/db.js";
+import { normalizeCustomerName, toErrorResponse } from "../utils/saleItems.js";
 
 /** Absent, blank or whitespace-only means "no bound". A bare "" fails the cast. */
 const bound = (value) => {
@@ -39,6 +40,37 @@ export const getClosedSales = async (req, res) => {
   } catch (error) {
     console.error("Error fetching closed sales", error);
     res.status(500).json({ message: "Internal Server Error" });
+  }
+};
+
+/**
+ * PUT /api/closed-sales/:id — set or clear the customer name, nothing else.
+ *
+ * Deliberately not a general edit. A closed sale has already moved stock, and
+ * every path that changes sale lines does so inside the transaction that moves
+ * that stock with them (see openSalesController.applyStockAndSale); there is no
+ * such transaction here to ride on. Naming a sale is the one edit that changes
+ * nothing financial, which is exactly why it can be allowed after payment —
+ * anything else still has to go through Revert.
+ */
+export const updateClosedSale = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const customerName = normalizeCustomerName(req.body?.customer_name);
+
+    const updated = await sql`
+      UPDATE closed_sales
+      SET customer_name = ${customerName}
+      WHERE id = ${id}
+      RETURNING *
+    `;
+    if (updated.length === 0)
+      return res.status(404).json({ message: "Sale not found" });
+    res.status(200).json(updated[0]);
+  } catch (error) {
+    const { status, message } = toErrorResponse(error);
+    if (status === 500) console.error("Error updating closed sale", error);
+    res.status(status).json({ message });
   }
 };
 

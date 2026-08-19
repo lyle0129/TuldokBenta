@@ -56,6 +56,7 @@ const OpenSalesOffline = () => {
 
   const [sales, setSales] = useState([]);
   const [invoiceNumber, setInvoiceNumber] = useState("INV-0001");
+  const [customerName, setCustomerName] = useState("");
 
   // 🧠 Load sales and next invoice from localStorage
   useEffect(() => {
@@ -84,6 +85,7 @@ const OpenSalesOffline = () => {
     const sale = {
       invoice_number: invoiceNumber,
       items: buildSaleItems(cart),
+      customer_name: customerName.trim() || null,
       date: new Date().toISOString(),
     };
 
@@ -96,6 +98,7 @@ const OpenSalesOffline = () => {
     setInvoiceNumber(`INV-${String(nextNum).padStart(4, "0")}`);
 
     clearCart();
+    setCustomerName("");
     setShowCart(false);
     setStatus({ tone: "ok", text: `Sale ${sale.invoice_number} saved offline.` });
   };
@@ -117,11 +120,13 @@ const OpenSalesOffline = () => {
 
   const handleCreateOpenSale = async (sale, index) => {
     try {
-      // Only invoice_number and items are read server-side; `total` and
-      // `created_at` were computed here and then discarded.
+      // An explicit whitelist, not a spread: `total` and `created_at` were
+      // computed here and then discarded server-side. Anything the server
+      // should keep has to be named — customer_name included.
       const { ok, message } = await createOpenSale({
         invoice_number: sale.invoice_number,
         items: sale.items,
+        customer_name: sale.customer_name ?? null,
       });
 
       if (ok) {
@@ -148,18 +153,18 @@ const OpenSalesOffline = () => {
     }
   };
 
-  const updateOfflineSaleInvoice = (index, newInvoice) => {
+  const updateOfflineSale = (index, patch) => {
     const updatedSales = [...sales];
-    updatedSales[index] = { ...updatedSales[index], invoice_number: newInvoice };
+    updatedSales[index] = { ...updatedSales[index], ...patch };
 
     // This used to write to "offlineSales" while every other access used
     // "offline_sales", so the edit was reported as saved and then vanished on
     // reload. Both now go through the one shared key.
     if (!persist(updatedSales)) {
-      setStatus({ tone: "error", text: "Failed to update invoice number." });
+      setStatus({ tone: "error", text: "Failed to update the queued sale." });
       return;
     }
-    setStatus({ tone: "ok", text: "Invoice number updated." });
+    setStatus({ tone: "ok", text: "Queued sale updated." });
   };
 
   const visibleSales = useMemo(() => filterSales(sales, query), [sales, query]);
@@ -262,7 +267,7 @@ const OpenSalesOffline = () => {
             <SearchInput
               value={query}
               onChange={setQuery}
-              placeholder="Search invoice or item…"
+              placeholder="Search invoice, customer, or item…"
               ariaLabel="Search offline sales"
               className="w-full sm:w-72"
             />
@@ -291,6 +296,12 @@ const OpenSalesOffline = () => {
                     <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-100">
                       Invoice #{s.invoice_number}
                     </h3>
+
+                    {s.customer_name && (
+                      <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mt-0.5">
+                        {s.customer_name}
+                      </p>
+                    )}
 
                     <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
                       Date:{" "}
@@ -367,6 +378,8 @@ const OpenSalesOffline = () => {
         onChangeFreebieItem={updateFreebieChoice}
         onChangeFreebieQty={updateFreebieQuantity}
         onRemoveFreebieChoice={removeFreebieChoice}
+        customerName={customerName}
+        onCustomerNameChange={setCustomerName}
         onCheckout={handleCheckout}
         checkoutLabel="Save Offline"
         title={`Cart · ${invoiceNumber}`}
@@ -387,7 +400,8 @@ const OpenSalesOffline = () => {
       />
 
       {/* VIEW — the invoice number is editable here so a queued sale rejected
-          for a duplicate number can be fixed and retried. */}
+          for a duplicate number can be fixed and retried, and the customer
+          alongside it because a name is often given after the fact. */}
       <Modal
         open={viewingSale !== null}
         onClose={() => setViewingSale(null)}
@@ -406,10 +420,10 @@ const OpenSalesOffline = () => {
             <button
               type="button"
               onClick={() => {
-                updateOfflineSaleInvoice(
-                  viewingSale.index,
-                  viewingSale.invoice_number
-                );
+                updateOfflineSale(viewingSale.index, {
+                  invoice_number: viewingSale.invoice_number,
+                  customer_name: viewingSale.customer_name?.trim() || null,
+                });
                 setViewingSale(null);
               }}
               className="flex-1 px-4 min-h-11 rounded-md bg-blue-600 hover:bg-blue-700 text-white font-medium transition-colors"
@@ -433,6 +447,23 @@ const OpenSalesOffline = () => {
                   }))
                 }
                 className="mt-1 block w-full sm:w-48 min-h-11 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded-md px-2 text-gray-800 dark:text-gray-100 font-mono focus:ring-2 focus:ring-blue-500 outline-none"
+              />
+            </label>
+
+            <label className="block text-sm text-gray-600 dark:text-gray-400 mt-3">
+              Customer (optional)
+              <input
+                type="text"
+                value={viewingSale.customer_name ?? ""}
+                maxLength={255}
+                placeholder="Who is this sale for?"
+                onChange={(e) =>
+                  setViewingSale((prev) => ({
+                    ...prev,
+                    customer_name: e.target.value,
+                  }))
+                }
+                className="mt-1 block w-full min-h-11 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded-md px-2 text-gray-800 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-blue-500 outline-none"
               />
             </label>
 

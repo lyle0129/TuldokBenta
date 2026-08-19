@@ -12,6 +12,7 @@ import { matchesQuery, filterSales } from "../utils/filterSales";
 const sale = {
   id: 1,
   invoice_number: "INV-0032",
+  customer_name: "Maria Santos",
   paid_using: "gcash",
   items: [
     { type: "item", item_name: "Ariel", qty: 2, price: 50 },
@@ -44,6 +45,11 @@ describe("matchesQuery", () => {
 
   it("matches on a service name", () => {
     expect(matchesQuery(sale, "full service")).toBe(true);
+  });
+
+  it("matches on the customer name", () => {
+    expect(matchesQuery(sale, "maria")).toBe(true);
+    expect(matchesQuery(sale, "santos")).toBe(true);
   });
 
   it("matches on the payment method", () => {
@@ -82,6 +88,13 @@ describe("matchesQuery", () => {
 
   it("tolerates a sale with no payment method", () => {
     expect(matchesQuery({ invoice_number: "INV-1", items: [] }, "cash")).toBe(false);
+  });
+
+  // Every sale taken before the field existed has customer_name === null.
+  it("tolerates a sale with no customer name", () => {
+    const anonymous = { invoice_number: "INV-1", customer_name: null, items: [] };
+    expect(matchesQuery(anonymous, "maria")).toBe(false);
+    expect(matchesQuery(anonymous, "inv")).toBe(true);
   });
 });
 

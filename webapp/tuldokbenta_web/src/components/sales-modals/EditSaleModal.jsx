@@ -3,6 +3,7 @@ import Modal from "../shared/Modal";
 import ConfirmDialog from "../shared/ConfirmDialog";
 import SearchInput from "../shared/SearchInput";
 import FreebieEditor from "../open-sales/FreebieEditor";
+import { labelClass, inputClass } from "../shared/fieldStyles";
 import { syncFreebieLines, isFreebieLine } from "../../utils/buildSaleItems";
 import { freebieGapsFromSaleItems, describeFreebieGaps } from "../../utils/freebies";
 import { formatCurrency } from "../../utils/format";
@@ -42,6 +43,16 @@ const EditSaleModal = ({
 
   const mapLine = (idx, fn) =>
     setItems((items) => items.map((it, i) => (i === idx ? fn(it) : it)));
+
+  /**
+   * The one field on the sale that isn't a line. Emptying it is a real edit —
+   * the server reads "" as "clear the name" rather than "leave it alone", so a
+   * name typed onto the wrong sale can be taken back off.
+   */
+  const setCustomerName = (value) => {
+    setLocalError(null);
+    onUpdate((prev) => ({ ...prev, customer_name: value }));
+  };
 
   /**
    * Freebie lines belong to their service, so removing a service takes its
@@ -215,6 +226,21 @@ const EditSaleModal = ({
             {shownError}
           </div>
         )}
+
+        <div className="mb-4 pb-4 border-b border-gray-200 dark:border-gray-700">
+          <label htmlFor="edit-customer-name" className={labelClass}>
+            Customer <span className="font-normal text-gray-500">(optional)</span>
+          </label>
+          <input
+            id="edit-customer-name"
+            type="text"
+            value={sale.customer_name ?? ""}
+            onChange={(e) => setCustomerName(e.target.value)}
+            placeholder="Who is this sale for?"
+            maxLength={255}
+            className={inputClass}
+          />
+        </div>
 
         <div className="space-y-4">
           {editableLines.length === 0 && (

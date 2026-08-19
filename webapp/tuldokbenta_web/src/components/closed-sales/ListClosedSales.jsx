@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { printInvoice } from "../../utils/printInvoice";
 import Pagination from "../shared/Pagination";
+import CustomerNameModal from "../sales-modals/CustomerNameModal";
 import { isFreebieLine } from "../../utils/buildSaleItems";
 import { formatCurrency, formatDateTime, saleTotal } from "../../utils/format";
 import { usePaymentMethods } from "../../hooks/usePaymentMethods";
@@ -11,9 +12,11 @@ const SALES_PER_PAGE = 10;
 const ListClosedSales = ({
   closedSales,
   revertSale,
+  updateClosedSale,
   emptyMessage = "No closed sales yet.",
 }) => {
   const [currentPage, setCurrentPage] = useState(1);
+  const [namingSale, setNamingSale] = useState(null);
 
   // Rows store the method code; this turns it back into the admin's label.
   const { paymentMethods } = usePaymentMethods();
@@ -55,6 +58,12 @@ const ListClosedSales = ({
                 Invoice #{sale.invoice_number}
               </h3>
 
+              {sale.customer_name && (
+                <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mt-0.5">
+                  {sale.customer_name}
+                </p>
+              )}
+
               <p className="text-base font-medium mt-1 text-green-700 dark:text-green-400">
                 {formatCurrency(saleTotal(sale))}
                 <span className="ml-2 text-sm font-normal text-gray-500 dark:text-gray-400">
@@ -93,6 +102,18 @@ const ListClosedSales = ({
                 Revert
               </button>
 
+              {/* Safe after payment because it touches nothing but the name —
+                  see updateClosedSale in closedSalesController. */}
+              {updateClosedSale && (
+                <button
+                  type="button"
+                  onClick={() => setNamingSale(sale)}
+                  className="flex-1 sm:flex-none px-4 min-h-11 bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200 rounded-md border border-blue-200 dark:border-blue-700 hover:bg-blue-200 dark:hover:bg-blue-800 font-medium transition"
+                >
+                  {sale.customer_name ? "Edit customer" : "Add customer"}
+                </button>
+              )}
+
               {/* NOTE: no Delete here — reverting stock for a sale deleted at
                   this stage isn't handled yet. */}
 
@@ -114,6 +135,12 @@ const ListClosedSales = ({
         onPageChange={setCurrentPage}
         totalItems={closedSales.length}
         pageSize={SALES_PER_PAGE}
+      />
+
+      <CustomerNameModal
+        sale={namingSale}
+        onClose={() => setNamingSale(null)}
+        onSave={(name) => updateClosedSale(namingSale.id, name)}
       />
     </div>
   );

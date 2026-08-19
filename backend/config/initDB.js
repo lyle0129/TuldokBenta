@@ -87,6 +87,17 @@ export async function initDB() {
       WHERE services.id = t.id AND services.sort_order IS NULL
     `;
 
+    // Who the sale is for. Nullable on purpose and with no backfill — unlike
+    // sort_order there is no sensible value to invent for a sale taken before
+    // the field existed, and NULL is exactly what "we never asked" means.
+    //
+    // Deliberately a plain column on both sale tables rather than a customers
+    // table: nothing here looks a customer up, counts their visits or joins on
+    // them. It is a label written on the invoice, and paid_using above
+    // documents what happens when a display string is promoted into a key.
+    await sql`ALTER TABLE open_sales ADD COLUMN IF NOT EXISTS customer_name VARCHAR(255)`;
+    await sql`ALTER TABLE closed_sales ADD COLUMN IF NOT EXISTS customer_name VARCHAR(255)`;
+
     // The payment methods the pay dialog offers, so a new one can be added
     // without a code change. Deliberately NOT a foreign key: `paid_using` on the
     // sale tables stays a plain string, exactly as it was written before this

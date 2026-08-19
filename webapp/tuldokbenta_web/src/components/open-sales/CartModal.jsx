@@ -1,6 +1,7 @@
 // components/open-sales/CartModal.jsx
 import Modal from "../shared/Modal";
 import FreebieEditor from "./FreebieEditor";
+import { labelClass, inputClass } from "../shared/fieldStyles";
 import { cartTotal } from "../../utils/cart";
 import { formatCurrency } from "../../utils/format";
 
@@ -22,6 +23,8 @@ const CartModal = ({
   onChangeFreebieItem,
   onChangeFreebieQty,
   onRemoveFreebieChoice,
+  customerName = "",
+  onCustomerNameChange,
   onCheckout,
   checkoutLabel = "Checkout",
   isSubmitting = false,
@@ -66,6 +69,26 @@ const CartModal = ({
           className="mb-4 rounded-md border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-950 px-4 py-2 text-sm text-red-700 dark:text-red-300"
         >
           {errorMessage}
+        </div>
+      )}
+
+      {/* Above the lines, because it belongs to the sale rather than to any one
+          of them — and because it is the field most easily forgotten once the
+          total is on screen. Optional: a sale with no name is still a sale. */}
+      {onCustomerNameChange && (
+        <div className="mb-4">
+          <label htmlFor="cart-customer-name" className={labelClass}>
+            Customer <span className="font-normal text-gray-500">(optional)</span>
+          </label>
+          <input
+            id="cart-customer-name"
+            type="text"
+            value={customerName}
+            onChange={(e) => onCustomerNameChange(e.target.value)}
+            placeholder="Who is this sale for?"
+            maxLength={255}
+            className={inputClass}
+          />
         </div>
       )}
 

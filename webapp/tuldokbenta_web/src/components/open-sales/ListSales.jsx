@@ -89,7 +89,7 @@ const ListSales = ({
           <SearchInput
             value={query}
             onChange={setQuery}
-            placeholder="Search invoice or item…"
+            placeholder="Search invoice, customer, or item…"
             ariaLabel="Search open sales"
             className="w-full sm:w-72"
           />
@@ -120,6 +120,12 @@ const ListSales = ({
                     <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-100">
                       Invoice #{sale.invoice_number}
                     </h3>
+
+                    {sale.customer_name && (
+                      <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mt-0.5">
+                        {sale.customer_name}
+                      </p>
+                    )}
 
                     <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
                       Created at:{" "}
