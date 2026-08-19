@@ -1,23 +1,40 @@
 import { sql } from "../config/db.js";
 
+/** Absent, blank or whitespace-only means "no bound". A bare "" fails the cast. */
+const bound = (value) => {
+  const trimmed = typeof value === "string" ? value.trim() : value;
+  return trimmed ? trimmed : null;
+};
+
 export const getClosedSales = async (req, res) => {
   try {
-    const { lowdate, highdate, datefield } = req.query;
+    const { lowdate, highdate, paidlow, paidhigh, createdlow, createdhigh } =
+      req.query;
 
-    // `paid_at` is the default because a closed sale's date *is* the day the
-    // money arrived; `created_at` is offered only so the report can also ask
-    // "what was written in this range", which no other caller needs.
+    // Each date gets its own optional bounds, because the two questions the
+    // report asks do not share a window: "what was collected" is a paid_at
+    // range, while "what was owed on day D" needs everything created on or
+    // before D that was still unpaid then — created_at and paid_at bounded
+    // independently, which a single BETWEEN on one column cannot express.
     //
-    // The two branches are literal fragments rather than an interpolated
-    // identifier, so the column can never come from the query string.
-    const dateFilter = !(lowdate && highdate)
-      ? sql``
-      : datefield === "created_at"
-      ? sql` AND created_at BETWEEN ${lowdate} AND ${highdate} `
-      : sql` AND paid_at BETWEEN ${lowdate} AND ${highdate} `;
+    // lowdate/highdate is the original paid_at pair, kept because the Closed
+    // Sales day view still sends it.
+    const paidLow = bound(paidlow) ?? bound(lowdate);
+    const paidHigh = bound(paidhigh) ?? bound(highdate);
+    const createdLow = bound(createdlow);
+    const createdHigh = bound(createdhigh);
 
-    const sales =
-      await sql`SELECT * FROM closed_sales WHERE 1=1 ${dateFilter} ORDER BY paid_at DESC`;
+    // One flat template rather than composed fragments: a NULL bound drops its
+    // own condition, so every combination is handled without building SQL, and
+    // the column names can never come from the query string.
+    const sales = await sql`
+      SELECT * FROM closed_sales
+      WHERE (${paidLow}::timestamp     IS NULL OR paid_at    >= ${paidLow}::timestamp)
+        AND (${paidHigh}::timestamp    IS NULL OR paid_at    <= ${paidHigh}::timestamp)
+        AND (${createdLow}::timestamp  IS NULL OR created_at >= ${createdLow}::timestamp)
+        AND (${createdHigh}::timestamp IS NULL OR created_at <= ${createdHigh}::timestamp)
+      ORDER BY paid_at DESC
+    `;
     res.status(200).json(sales);
   } catch (error) {
     console.error("Error fetching closed sales", error);

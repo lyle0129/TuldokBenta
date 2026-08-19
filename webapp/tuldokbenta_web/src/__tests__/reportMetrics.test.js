@@ -14,8 +14,11 @@
 import { describe, it, expect } from "vitest";
 import {
   bucketKey,
+  isPaidAsOf,
   lineBreakdown,
+  outstandingAsOf,
   paymentBreakdown,
+  splitBy,
   summarize,
   trendSeries,
 } from "../utils/reportMetrics";
@@ -146,6 +149,47 @@ describe("trendSeries — the attribution rule", () => {
     });
   });
 
+  /**
+   * A quiet day still owes whatever it owed. Deriving buckets from activity
+   * alone would leave a hole in the outstanding line wherever trade stopped.
+   */
+  it("seeds a bucket for every day in the range, even ones with no sales", () => {
+    const trend = trendSeries({
+      collected: [],
+      booked: [],
+      from: "2026-08-17",
+      to: "2026-08-19",
+    });
+    expect(trend.map((row) => row.period)).toEqual([
+      "2026-08-17",
+      "2026-08-18",
+      "2026-08-19",
+    ]);
+  });
+
+  it("never seeds a bucket past the end of the range", () => {
+    const trend = trendSeries({ collected: [], booked: [], from: "2026-08-17", to: "2026-08-18" });
+    expect(trend.map((row) => row.period)).not.toContain("2026-08-19");
+  });
+
+  it("tracks outstanding as the balance owed at each day's end", () => {
+    const owed = [crossDay]; // opened the 17th, paid the 18th
+    const trend = trendSeries({
+      collected: [crossDay],
+      booked: [crossDay],
+      owedSource: owed,
+      from: "2026-08-16",
+      to: "2026-08-19",
+    });
+
+    const on = (day) => trend.find((row) => row.period === day);
+    expect(on("2026-08-16").outstanding).toBe(0); // did not exist yet
+    expect(on("2026-08-17").outstanding).toBe(100); // opened, unpaid
+    expect(on("2026-08-18").outstanding).toBe(0); // paid during the 18th
+    expect(on("2026-08-19").outstanding).toBe(0);
+    expect(on("2026-08-17").owedCount).toBe(1);
+  });
+
   it("skips sales whose date is missing instead of bucketing them under null", () => {
     const trend = trendSeries({
       collected: [sale({ id: 2, created: "2026-08-17T09:00:00", paid: null })],
@@ -168,6 +212,87 @@ describe("trendSeries — the attribution rule", () => {
       "2026-08-18",
       "2026-08-19",
     ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Point-in-time settlement — the heart of the report
+// ---------------------------------------------------------------------------
+describe("isPaidAsOf", () => {
+  const paidOn20th = sale({ created: "2026-08-10T09:00:00", paid: "2026-08-20T14:00:00" });
+
+  it("is false before the payment, true after it", () => {
+    expect(isPaidAsOf(paidOn20th, new Date("2026-08-15T23:59:59.999"))).toBe(false);
+    expect(isPaidAsOf(paidOn20th, new Date("2026-08-25T23:59:59.999"))).toBe(true);
+  });
+
+  it("counts a payment made exactly at the boundary as settled", () => {
+    expect(isPaidAsOf(paidOn20th, new Date("2026-08-20T14:00:00"))).toBe(true);
+  });
+
+  it("is false for a sale that was never paid", () => {
+    expect(isPaidAsOf(sale({ created: "2026-08-10T09:00:00" }), new Date())).toBe(false);
+  });
+});
+
+describe("outstandingAsOf", () => {
+  // Opened the 10th, paid the 20th. It was owed for ten days in between.
+  const lateBloomer = sale({ id: 1, created: "2026-08-10T09:00:00", paid: "2026-08-20T14:00:00" });
+  const stillOpen = sale({ id: 2, created: "2026-08-12T09:00:00" });
+  const openedLater = sale({ id: 3, created: "2026-08-18T09:00:00" });
+  const all = [lateBloomer, stillOpen, openedLater];
+
+  const asOf = (iso) => outstandingAsOf(all, new Date(iso)).map((s) => s.id);
+
+  /**
+   * The property the whole feature exists for. Asking "is it unpaid *now*"
+   * would say this sale was never outstanding on the 15th, and would silently
+   * change the 15th's figures the moment it was paid.
+   */
+  it("counts a sale that was owed then, even though it is paid now", () => {
+    expect(asOf("2026-08-15T23:59:59.999")).toContain(1);
+  });
+
+  it("stops counting it once the payment date has passed", () => {
+    expect(asOf("2026-08-25T23:59:59.999")).not.toContain(1);
+  });
+
+  /** Idempotence, stated directly: the answer for a past day never moves. */
+  it("gives the same answer for a past day no matter when it is asked", () => {
+    const fifteenth = asOf("2026-08-15T23:59:59.999");
+    // Re-derive after "time passes" and more sales are settled.
+    const later = outstandingAsOf(
+      [...all, sale({ id: 4, created: "2026-09-01T09:00:00", paid: "2026-09-02T09:00:00" })],
+      new Date("2026-08-15T23:59:59.999")
+    ).map((s) => s.id);
+    expect(later).toEqual(fifteenth);
+  });
+
+  it("excludes sales that did not exist yet — no phantom future", () => {
+    expect(asOf("2026-08-15T23:59:59.999")).not.toContain(3);
+  });
+
+  it("includes a sale that is still unpaid", () => {
+    expect(asOf("2026-08-15T23:59:59.999")).toContain(2);
+  });
+
+  it("is empty before anything was opened", () => {
+    expect(asOf("2026-08-01T00:00:00")).toEqual([]);
+  });
+});
+
+describe("splitBy", () => {
+  it("partitions exhaustively, so the halves sum to the whole", () => {
+    const sales = [
+      sale({ id: 1, price: 100, created: "2026-08-17T09:00:00" }),
+      sale({ id: 2, price: 50, created: "2026-08-17T10:00:00" }),
+      sale({ id: 3, price: 25, created: "2026-08-17T11:00:00" }),
+    ];
+    const { yes, no } = splitBy(sales, (s) => s.id === 2);
+
+    expect(yes).toHaveLength(1);
+    expect(no).toHaveLength(2);
+    expect(summarize(yes).total + summarize(no).total).toBe(summarize(sales).total);
   });
 });
 

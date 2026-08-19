@@ -5,40 +5,49 @@ import Pagination from "../shared/Pagination";
 import { usePaymentMethods } from "../../hooks/usePaymentMethods";
 import { buildMethodLookup, resolveMethod } from "../../utils/paymentMethods";
 import { formatCurrency, formatDateTime, saleTotal } from "../../utils/format";
+import { isPaidAsOf } from "../../utils/reportMetrics";
 
 /**
- * A sortable, paged list of sales for the report.
+ * A sortable, filterable, paged list of sales for the report.
  *
- * Rebuilt on the shared UI: the pager is the app's Pagination, the formatters
- * are imported rather than passed down as props (the old list took them as
- * arguments, which is how one page ended up printing "$"), and money goes
- * through saleTotal so string prices from Postgres NUMERIC can't concatenate.
+ * Settlement is a property of each row, judged **as of `asOf`** rather than
+ * "now", so a list rendered for a past range shows what was true then. A sale
+ * opened on the 15th and paid on the 20th reads UNPAID in the 15th's list and
+ * PAID in the 20th's — matching the cards above it, which ask the same way.
  *
  * @param {object} props
  * @param {string} props.title
  * @param {object[]} props.sales
- * @param {boolean} [props.showPayment] show the paid date and method
+ * @param {Date} props.asOf          the moment settlement is judged at
+ * @param {{id: string, label: string, test?: (sale, asOf) => boolean}[]} [props.filters]
+ *        Segmented options; the first is the default and needs no `test`.
  * @param {number} [props.pageSize]
- * @param {string} props.emptyMessage
+ * @param {string} props.emptyMessage shown when there are no sales at all
+ * @param {string} [props.noMatchMessage] shown when a filter excluded them all
  */
 const SORT_FIELDS = [
   { id: "created_at", label: "Created" },
-  { id: "paid_at", label: "Paid", paymentOnly: true },
+  { id: "paid_at", label: "Paid" },
   { id: "total", label: "Amount" },
   { id: "invoice_number", label: "Invoice" },
 ];
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
 const ReportSalesList = ({
   title,
   sales = [],
-  showPayment = false,
+  asOf,
+  filters,
   pageSize = 10,
   emptyMessage = "No sales to show.",
+  noMatchMessage,
 }) => {
   const [page, setPage] = useState(1);
-  const [sortBy, setSortBy] = useState(showPayment ? "paid_at" : "created_at");
+  const [sortBy, setSortBy] = useState("created_at");
   const [sortOrder, setSortOrder] = useState("desc");
   const [expanded, setExpanded] = useState(() => new Set());
+  const [filterId, setFilterId] = useState(() => filters?.[0]?.id ?? "all");
 
   const { paymentMethods } = usePaymentMethods();
   const methodLookup = useMemo(
@@ -46,14 +55,25 @@ const ReportSalesList = ({
     [paymentMethods]
   );
 
+  const visible = useMemo(() => {
+    const active = filters?.find((f) => f.id === filterId);
+    return active?.test ? sales.filter((sale) => active.test(sale, asOf)) : sales;
+  }, [sales, filters, filterId, asOf]);
+
   const sorted = useMemo(() => {
-    const withTotals = sales.map((sale) => ({ ...sale, total: saleTotal(sale) }));
+    const withTotals = visible.map((sale) => ({
+      ...sale,
+      total: saleTotal(sale),
+      settled: isPaidAsOf(sale, asOf),
+    }));
     const direction = sortOrder === "asc" ? 1 : -1;
 
     const key = (sale) => {
       switch (sortBy) {
         case "paid_at":
-          return sale.paid_at ? new Date(sale.paid_at).getTime() : 0;
+          // Unsettled rows sort as "never paid" rather than as the epoch, so
+          // they gather at one end instead of interleaving.
+          return sale.settled ? new Date(sale.paid_at).getTime() : Infinity;
         case "total":
           return sale.total;
         case "invoice_number":
@@ -70,7 +90,7 @@ const ReportSalesList = ({
       if (av === bv) return 0;
       return av > bv ? direction : -direction;
     });
-  }, [sales, sortBy, sortOrder]);
+  }, [visible, sortBy, sortOrder, asOf]);
 
   const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize));
 
@@ -79,9 +99,6 @@ const ReportSalesList = ({
   useEffect(() => {
     setPage((current) => Math.min(current, totalPages));
   }, [totalPages]);
-
-  const start = (page - 1) * pageSize;
-  const visible = sorted.slice(start, start + pageSize);
 
   const handleSort = (field) => {
     if (sortBy === field) {
@@ -112,6 +129,22 @@ const ReportSalesList = ({
 
   const total = sorted.reduce((sum, sale) => sum + sale.total, 0);
 
+  const pillClass = (active) =>
+    `px-4 min-h-11 rounded-md border text-sm font-medium whitespace-nowrap flex-shrink-0 transition-colors ${
+      active
+        ? "bg-blue-600 border-blue-600 text-white"
+        : "bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+    }`;
+
+  /** How long a still-unpaid sale has been owed, as of the range's end. */
+  const daysOwed = (sale) =>
+    Math.max(
+      0,
+      Math.floor((asOf - new Date(sale.created_at)) / DAY_MS)
+    );
+
+  const paged = sorted.slice((page - 1) * pageSize, page * pageSize);
+
   return (
     <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-sm p-4 sm:p-6 transition-colors">
       <div className="flex flex-col sm:flex-row sm:items-baseline gap-1 sm:gap-3 mb-4">
@@ -129,9 +162,33 @@ const ReportSalesList = ({
         </p>
       </div>
 
+      {filters?.length > 1 && (
+        <div
+          role="tablist"
+          aria-label={`Filter ${title}`}
+          className="flex gap-2 overflow-x-auto scrollbar-hide -mx-1 px-1 mb-4"
+        >
+          {filters.map((filter) => (
+            <button
+              key={filter.id}
+              type="button"
+              role="tab"
+              aria-selected={filterId === filter.id}
+              onClick={() => {
+                setFilterId(filter.id);
+                setPage(1);
+              }}
+              className={pillClass(filterId === filter.id)}
+            >
+              {filter.label}
+            </button>
+          ))}
+        </div>
+      )}
+
       <div className="flex flex-wrap items-center gap-2 mb-4">
         <span className="text-sm text-gray-600 dark:text-gray-400">Sort by</span>
-        {SORT_FIELDS.filter((f) => showPayment || !f.paymentOnly).map((field) => (
+        {SORT_FIELDS.map((field) => (
           <button
             key={field.id}
             type="button"
@@ -149,18 +206,24 @@ const ReportSalesList = ({
         ))}
       </div>
 
-      {visible.length === 0 ? (
+      {paged.length === 0 ? (
         <p className="text-gray-500 dark:text-gray-400 text-center italic py-8">
-          {emptyMessage}
+          {sales.length === 0 ? emptyMessage : noMatchMessage ?? emptyMessage}
         </p>
       ) : (
         <ul className="space-y-3">
-          {visible.map((sale) => {
+          {paged.map((sale) => {
             const isOpen = expanded.has(sale.id);
             return (
               <li
                 key={sale.id}
-                className="border border-gray-200 dark:border-gray-700 rounded-lg shadow-sm p-4 bg-white dark:bg-gray-800 hover:shadow-md transition"
+                className={`border rounded-lg shadow-sm p-4 bg-white dark:bg-gray-800 hover:shadow-md transition ${
+                  sale.settled
+                    ? "border-gray-200 dark:border-gray-700"
+                    : // Unpaid rows carry an amber edge so the list reads at a
+                      // glance without reading each badge.
+                      "border-amber-300 dark:border-amber-700/70"
+                }`}
               >
                 <div className="flex justify-between items-start gap-3">
                   <div className="min-w-0">
@@ -171,7 +234,18 @@ const ReportSalesList = ({
                       <span className="font-bold text-green-700 dark:text-green-400">
                         {formatCurrency(sale.total)}
                       </span>
-                      {showPayment && sale.paid_using && (
+
+                      {sale.settled ? (
+                        <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200 border border-green-200 dark:border-green-700">
+                          PAID
+                        </span>
+                      ) : (
+                        <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200 border border-amber-300 dark:border-amber-700">
+                          UNPAID
+                        </span>
+                      )}
+
+                      {sale.settled && sale.paid_using && (
                         <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200 border border-blue-200 dark:border-blue-700">
                           {resolveMethod(methodLookup, sale.paid_using).label}
                         </span>
@@ -179,9 +253,18 @@ const ReportSalesList = ({
                     </div>
 
                     <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                      Created {formatDateTime(sale.created_at)}
-                      {showPayment && sale.paid_at && (
+                      Opened {formatDateTime(sale.created_at)}
+                      {sale.settled ? (
                         <> · Paid {formatDateTime(sale.paid_at)}</>
+                      ) : (
+                        <>
+                          {" "}
+                          ·{" "}
+                          <span className="text-amber-700 dark:text-amber-400">
+                            owed {daysOwed(sale)}{" "}
+                            {daysOwed(sale) === 1 ? "day" : "days"}
+                          </span>
+                        </>
                       )}
                     </p>
 

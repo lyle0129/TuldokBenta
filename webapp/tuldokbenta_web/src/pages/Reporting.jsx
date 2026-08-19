@@ -1,7 +1,7 @@
 // pages/Reporting.jsx
 import { useMemo, useState } from "react";
-import { Banknote, Clock, FileText, Diamond } from "lucide-react";
-import { useOpenSales, useClosedSalesInRange } from "../hooks/useSales";
+import { Banknote, Clock, FileText } from "lucide-react";
+import { useOpenSales, useClosedSalesWindow } from "../hooks/useSales";
 import { useReportAnalytics } from "../hooks/useReportAnalytics";
 import ReportToolbar from "../components/reporting/ReportToolbar";
 import ReportSalesList from "../components/reporting/ReportSalesList";
@@ -12,8 +12,9 @@ import SalesVolumeChart from "../components/charts/SalesVolumeChart";
 import PaymentBreakdownChart from "../components/charts/PaymentBreakdownChart";
 import ItemSalesChart from "../components/charts/ItemSalesChart";
 import { filterSales } from "../utils/filterSales";
-import { formatCurrency } from "../utils/format";
-import { localRangeBounds, presetRange } from "../utils/dateRange";
+import { formatCurrency, formatDayLabel } from "../utils/format";
+import { presetRange } from "../utils/dateRange";
+import { isPaidAsOf } from "../utils/reportMetrics";
 
 const GRANULARITIES = [
   { id: "daily", label: "Daily" },
@@ -33,19 +34,19 @@ const initialFilters = () => ({
 /**
  * The sales report.
  *
- * One rule runs the whole page: **open sales are dated by created_at, closed
- * sales by paid_at**. That is the model the database already uses — paying a
- * sale moves the row into closed_sales and stamps paid_at — but the old page
- * filtered closed sales on created_at, so a sale opened Monday and paid Tuesday
- * counted as Monday revenue even though no money moved that day.
+ * Two rules run the whole page.
  *
- * It produces two headline totals that overlap on purpose and must never be
- * added together:
- *   collected — paid in this range. The cash that arrived.
- *   booked    — created in this range. The business written.
+ * **Dating.** Open sales are dated by created_at, closed sales by paid_at —
+ * the model the database already uses, since paying a sale moves the row into
+ * closed_sales and stamps paid_at. Collected is money that arrived in the
+ * range; booked is business written in it. They overlap by design and are
+ * never summed.
  *
- * That also disposes of the old "Previous Days Paid Today" card: a sale paid
- * today is simply part of today's collected, wherever it was opened.
+ * **Settlement is asked as of the range's end, never "now".** A sale opened on
+ * the 15th and paid on the 20th *was* owed on the 15th, so the 15th's report
+ * says so — today, and next year. Asking "is it unpaid right now" would make
+ * every historical report drift as old debts get settled, which is a worse
+ * failure than being wrong: nothing looks broken.
  */
 const Reporting = () => {
   const [filters, setFilters] = useState(initialFilters);
@@ -53,30 +54,25 @@ const Reporting = () => {
 
   const { from, to } = filters;
 
-  // Three reads, because the two questions need different slices of the same
-  // table and the browser is no longer the place to cut them.
+  // One window covers every question: everything created by `to` that was
+  // still unpaid when `from` began. See useClosedSalesWindow.
   const {
-    closedSales: collectedRaw,
-    isLoading: collectedLoading,
-    error: collectedError,
-  } = useClosedSalesInRange(from, to, "paid_at");
-
-  const {
-    closedSales: bookedClosedRaw,
-    isLoading: bookedLoading,
-    error: bookedError,
-  } = useClosedSalesInRange(from, to, "created_at");
+    closedSales: windowRaw,
+    isLoading: windowLoading,
+    error: windowError,
+  } = useClosedSalesWindow(from, to);
 
   // Unbounded on purpose: open_sales only holds unpaid rows, and paying drains
-  // it. This is the outstanding balance, which has no date to be filtered by.
+  // it. Needed in full because a sale opened long before the range can still
+  // be owed inside it.
   const {
     openSales,
     isLoading: openLoading,
     error: openError,
   } = useOpenSales();
 
-  const isLoading = collectedLoading || bookedLoading || openLoading;
-  const error = collectedError || bookedError || openError;
+  const isLoading = windowLoading || openLoading;
+  const error = windowError || openError;
 
   /** Search, payment method and line type — everything except the dates. */
   const applyFilters = useMemo(() => {
@@ -96,41 +92,28 @@ const Reporting = () => {
     };
   }, [filters]);
 
-  const collected = useMemo(
-    () => applyFilters(collectedRaw),
-    [applyFilters, collectedRaw]
+  const windowSales = useMemo(
+    () => applyFilters(windowRaw),
+    [applyFilters, windowRaw]
   );
 
-  const outstanding = useMemo(
-    () => applyFilters(openSales),
-    [applyFilters, openSales]
+  // The payment-method filter would empty this entirely — an unpaid sale has no
+  // method — so it only ever sees the text and line-type filters.
+  const visibleOpenSales = useMemo(
+    () => filterSales(openSales, filters.query),
+    [openSales, filters.query]
   );
-
-  /**
-   * Everything created in the range, paid or not.
-   *
-   * The open half is cut here rather than by the server: the whole unpaid list
-   * is already loaded for the outstanding figure, so a fourth request would buy
-   * nothing.
-   */
-  const booked = useMemo(() => {
-    // The same window the server was given for the closed half — both sides of
-    // `booked` have to agree on where the day starts, and the shop's midnight
-    // is eight hours off the UTC the timestamps are stored in.
-    const { start, end } = localRangeBounds(from, to);
-    const openedInRange = outstanding.filter((sale) => {
-      const created = new Date(sale.created_at);
-      return created >= start && created <= end;
-    });
-    return [...applyFilters(bookedClosedRaw), ...openedInRange];
-  }, [applyFilters, bookedClosedRaw, outstanding, from, to]);
 
   const analytics = useReportAnalytics({
-    collected,
-    booked,
-    outstanding,
+    windowSales,
+    openSales: visibleOpenSales,
+    from,
+    to,
     granularity,
   });
+
+  const { rangeEnd } = analytics;
+  const asOfLabel = `as of ${formatDayLabel(to)}`;
 
   const tabClass = (active) =>
     `px-4 min-h-11 rounded-md border text-sm font-medium whitespace-nowrap flex-shrink-0 transition-colors ${
@@ -138,6 +121,8 @@ const Reporting = () => {
         ? "bg-blue-600 border-blue-600 text-white"
         : "bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
     }`;
+
+  const countOf = (part) => `(${part.count})`;
 
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
@@ -149,7 +134,7 @@ const Reporting = () => {
         value={filters}
         onChange={setFilters}
         onReset={() => setFilters(initialFilters())}
-        sales={collectedRaw}
+        sales={windowRaw}
         summary={`${analytics.collected.count} paid · ${formatCurrency(
           analytics.collected.total
         )} collected`}
@@ -170,40 +155,71 @@ const Reporting = () => {
         </p>
       ) : (
         <div className="space-y-6">
-          {/* Each tile names its own rule: collected and booked overlap, so
-              without the captions they read as two halves of a sum. */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {/* Each tile names the rule that produced it. Collected and booked
+              overlap, so without the captions they read as two halves of a
+              sum; outstanding is a moment, not a period. */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             <StatTile
               label="Collected"
               value={formatCurrency(analytics.collected.total)}
-              sub={`${analytics.collected.count} paid`}
-              hint="Sales paid in this range"
+              sub={`${analytics.collected.count} payments`}
               icon={Banknote}
               accent="green"
+              breakdown={[
+                {
+                  label: "from this range's bookings",
+                  value: formatCurrency(analytics.collected.thisRange.total),
+                  sub: countOf(analytics.collected.thisRange),
+                },
+                {
+                  label: "from earlier bookings",
+                  value: formatCurrency(analytics.collected.earlier.total),
+                  sub: countOf(analytics.collected.earlier),
+                },
+              ]}
+              hint="Money that arrived in this range"
             />
-            <StatTile
-              label="Outstanding"
-              value={formatCurrency(analytics.outstanding.total)}
-              sub={`${analytics.outstanding.count} unpaid`}
-              hint="Every open sale, all time"
-              icon={Clock}
-              accent="amber"
-            />
+
             <StatTile
               label="Booked"
               value={formatCurrency(analytics.booked.total)}
               sub={`${analytics.booked.count} opened`}
-              hint="Sales created in this range"
               icon={FileText}
               accent="blue"
+              breakdown={[
+                {
+                  label: "paid",
+                  value: formatCurrency(analytics.booked.paid.total),
+                  sub: countOf(analytics.booked.paid),
+                },
+                {
+                  label: "still unpaid",
+                  value: formatCurrency(analytics.booked.unpaid.total),
+                  sub: countOf(analytics.booked.unpaid),
+                },
+              ]}
+              hint={`Business written in this range · settled ${asOfLabel}`}
             />
+
             <StatTile
-              label="Average sale"
-              value={formatCurrency(analytics.collected.average)}
-              sub={`over ${analytics.collected.count} payments`}
-              hint="Collected ÷ payments"
-              icon={Diamond}
-              accent="indigo"
+              label="Outstanding"
+              value={formatCurrency(analytics.outstanding.total)}
+              sub={`${analytics.outstanding.count} unpaid`}
+              icon={Clock}
+              accent="amber"
+              breakdown={[
+                {
+                  label: "carried in, still owed",
+                  value: formatCurrency(analytics.carriedOver.stillOwed.total),
+                  sub: countOf(analytics.carriedOver.stillOwed),
+                },
+                {
+                  label: "opened in range, unpaid",
+                  value: formatCurrency(analytics.booked.unpaid.total),
+                  sub: countOf(analytics.booked.unpaid),
+                },
+              ]}
+              hint={`Owed ${asOfLabel} — not "unpaid right now"`}
             />
           </div>
 
@@ -297,27 +313,49 @@ const Reporting = () => {
             limit={15}
           />
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <ReportSalesList
-              title="Closed — paid in this range"
-              sales={collected}
-              showPayment
-              emptyMessage={
-                collectedRaw.length === 0
-                  ? "Nothing was paid in this range."
-                  : "No payments match the current filters."
-              }
-            />
-            <ReportSalesList
-              title="Open — still unpaid"
-              sales={outstanding}
-              emptyMessage={
-                openSales.length === 0
-                  ? "No open sales. Everything is paid."
-                  : "No open sales match the current filters."
-              }
-            />
-          </div>
+          <ReportSalesList
+            title="Booked in this range"
+            sales={analytics.booked.sales}
+            asOf={rangeEnd}
+            filters={[
+              { id: "all", label: "All" },
+              {
+                id: "paid",
+                label: "Paid",
+                test: (sale, asOf) => isPaidAsOf(sale, asOf),
+              },
+              {
+                id: "unpaid",
+                label: "Unpaid",
+                test: (sale, asOf) => !isPaidAsOf(sale, asOf),
+              },
+            ]}
+            emptyMessage="Nothing was booked in this range."
+            noMatchMessage="No bookings match this filter."
+          />
+
+          {/* The population behind Collected's "from earlier bookings" line:
+              filter this to "Paid in range" and the two must agree. */}
+          <ReportSalesList
+            title="Carried over from before this range"
+            sales={analytics.carriedOver.sales}
+            asOf={rangeEnd}
+            filters={[
+              { id: "all", label: "All" },
+              {
+                id: "paid",
+                label: "Paid in range",
+                test: (sale, asOf) => isPaidAsOf(sale, asOf),
+              },
+              {
+                id: "owed",
+                label: "Still owed",
+                test: (sale, asOf) => !isPaidAsOf(sale, asOf),
+              },
+            ]}
+            emptyMessage="Nothing was owed when this range began."
+            noMatchMessage="No carried-over sales match this filter."
+          />
         </div>
       )}
     </div>

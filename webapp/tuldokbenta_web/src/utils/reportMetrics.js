@@ -12,7 +12,7 @@
 //   booked    — any sale created in the range. The business written.
 // They overlap by design and must never be added together.
 
-import { toISODate } from "./dateRange";
+import { shiftDay, toISODate } from "./dateRange";
 import { saleTotal } from "./format";
 import { isFreebieLine } from "./buildSaleItems";
 
@@ -95,41 +95,116 @@ export const bucketLabel = (key, granularity = "daily") => {
   }
 };
 
+/**
+ * Whether a sale was settled by `asOf` — the one definition of "paid by then".
+ *
+ * Deliberately not "has a paid_at": a sale paid *after* the moment being asked
+ * about was still owed at that moment. Every as-of figure on the report goes
+ * through this, so they cannot drift apart.
+ */
+export const isPaidAsOf = (sale, asOf) => {
+  if (!sale?.paid_at) return false;
+  const paid = new Date(sale.paid_at);
+  return !Number.isNaN(paid.getTime()) && paid <= asOf;
+};
+
+/**
+ * The sales still owed at a given moment: created by then, not yet paid by then.
+ *
+ * This is what makes a historical report stable. "Unpaid right now" would say a
+ * sale opened on the 10th and paid on the 20th was never outstanding on the
+ * 15th, and would quietly change the 15th's figures the moment it was paid.
+ * Asking the question *as of* the 15th gives the same answer forever.
+ *
+ * `created_at <= asOf` is also what keeps a range free of bookings that did not
+ * exist yet.
+ */
+export const outstandingAsOf = (sales = [], asOf) =>
+  sales.filter((sale) => {
+    const created = new Date(sale.created_at);
+    if (Number.isNaN(created.getTime()) || created > asOf) return false;
+    return !isPaidAsOf(sale, asOf);
+  });
+
+/**
+ * Partitions on a predicate. Returns both halves, so a split is always
+ * exhaustive by construction and the parts provably sum to the whole.
+ */
+export const splitBy = (sales = [], test) => {
+  const yes = [];
+  const no = [];
+  for (const sale of sales) (test(sale) ? yes : no).push(sale);
+  return { yes, no };
+};
+
 /** An empty bucket, complete. Every field exists from the moment it is created. */
 const emptyBucket = (period) => ({
   period,
   collected: 0,
   booked: 0,
+  outstanding: 0,
   paidCount: 0,
   openedCount: 0,
+  owedCount: 0,
 });
 
 /**
- * Chart rows plotting collected against booked over time.
+ * Chart rows plotting collected, booked and outstanding over time.
  *
- * `collected` is bucketed by paid_at, `booked` by created_at, so a sale opened
- * Monday and paid Tuesday raises Monday's booked line and Tuesday's collected
- * line. Both series share one set of buckets, which is why a period can carry
- * a payment without carrying a creation.
+ * `collected` is bucketed by paid_at and `booked` by created_at, so a sale
+ * opened Monday and paid Tuesday raises Monday's booked line and Tuesday's
+ * collected line. Those two are flows — money moved during the period.
+ * `outstanding` is a stock, evaluated once at the end of each bucket, which is
+ * why it gets its own axis when drawn.
  *
- * Buckets are seeded through emptyBucket() alone. The previous version built
- * them differently on the two paths and the payment path omitted its payment
- * tally, so the first sale paid in a period nothing was created in threw a
- * TypeError — the ordinary cross-day payment.
+ * Buckets are seeded for every day in [from, to] rather than only where a sale
+ * happened. A quiet day still owes whatever it owed, so deriving buckets from
+ * activity alone would break the outstanding line wherever trade stopped.
  *
- * @param {{ collected?: object[], booked?: object[], granularity?: string }} params
+ * They are seeded through emptyBucket() alone. The previous version built them
+ * differently on the two paths and the payment path omitted its payment tally,
+ * so the first sale paid in a period nothing was created in threw a TypeError —
+ * the ordinary cross-day payment.
+ *
+ * @param {object}   params
+ * @param {object[]} params.collected   sales paid inside the range
+ * @param {object[]} params.booked      sales created inside the range
+ * @param {object[]} params.owedSource  every sale that could still be owed —
+ *                                      open sales plus the closed-sales window
+ * @param {string}   params.from        "YYYY-MM-DD"
+ * @param {string}   params.to          "YYYY-MM-DD"
+ * @param {string}   params.granularity daily | weekly | monthly | yearly
  */
 export const trendSeries = ({
   collected = [],
   booked = [],
+  owedSource = [],
+  from,
+  to,
   granularity = "daily",
 } = {}) => {
   const buckets = new Map();
+  // Kept beside the buckets rather than on them: it is scaffolding for the
+  // outstanding pass, not something the chart should receive.
+  const lastDayOf = new Map();
 
   const bucketFor = (key) => {
     if (!buckets.has(key)) buckets.set(key, emptyBucket(key));
     return buckets.get(key);
   };
+
+  // Walk the range a day at a time so every bucket exists, and remember the
+  // last day each one covers. That day *is* the bucket's end — no calendar
+  // arithmetic needed, and a bucket can never reach past `to`, which is what
+  // keeps days that have not happened yet out of the series.
+  if (from && to) {
+    for (let day = from; day <= to; day = shiftDay(day, 1)) {
+      const key = bucketKey(`${day}T12:00:00`, granularity);
+      if (!key) break;
+      bucketFor(key);
+      lastDayOf.set(key, day);
+    }
+  }
 
   for (const sale of collected) {
     const key = bucketKey(sale.paid_at, granularity);
@@ -145,6 +220,14 @@ export const trendSeries = ({
     const bucket = bucketFor(key);
     bucket.booked += saleTotal(sale);
     bucket.openedCount += 1;
+  }
+
+  for (const [key, bucket] of buckets) {
+    const lastDay = lastDayOf.get(key);
+    if (!lastDay) continue;
+    const owed = outstandingAsOf(owedSource, new Date(`${lastDay}T23:59:59.999`));
+    bucket.outstanding = owed.reduce((sum, sale) => sum + saleTotal(sale), 0);
+    bucket.owedCount = owed.length;
   }
 
   return [...buckets.values()]

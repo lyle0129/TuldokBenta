@@ -82,28 +82,37 @@ export const useClosedSalesForDay = (isoDate) => {
 };
 
 /**
- * A span of closed sales, selected by one of the two dates a sale carries.
+ * Every closed sale the report needs for a range, in one request.
  *
- * Reporting needs both readings of the same range and they are not the same
- * set: "paid_at" is the cash actually taken in the range, "created_at" is the
- * business written in it. A sale opened Monday and paid Tuesday belongs to
- * Tuesday by the first and Monday by the second.
+ * The window is `created_at <= end AND paid_at >= start`, which is wider than
+ * the range and deliberately so. Three different questions are answered by
+ * filtering this one set:
  *
- * The unranged useClosedSales() above stays for the invoice-number maximum;
- * this is what the report reads, so a growing table no longer means a growing
- * download.
+ *   collected     paid_at within the range
+ *   booked        created_at within the range, paid or not
+ *   owed on day D created_at <= D and not yet paid by D
+ *
+ * The last one is why the window cannot simply be the range. Knowing what was
+ * owed on a past day means knowing which of those sales were paid *afterwards*,
+ * so the set has to reach forward from the range's start to now. Sales settled
+ * before the range begins are excluded by `paidlow`, since they cannot affect
+ * any day inside it — and a sale can never be paid before it was created, so
+ * nothing is missed at the other end.
+ *
+ * The cost is that a range from six months ago pulls six months of payments.
+ * If that ever bites, the answer is a server-side aggregate, not a narrower
+ * window: the arithmetic genuinely needs these rows.
  *
  * @param {string} from "YYYY-MM-DD", inclusive
  * @param {string} to   "YYYY-MM-DD", inclusive
- * @param {"paid_at"|"created_at"} dateField
  */
-export const useClosedSalesInRange = (from, to, dateField = "paid_at") => {
+export const useClosedSalesWindow = (from, to) => {
   const { data, isLoading, isFetching, error } = useQuery({
-    queryKey: queryKeys.closedSalesRange(from, to, dateField),
+    queryKey: queryKeys.closedSalesWindow(from, to),
     queryFn: ({ signal }) => {
       const { lowdate, highdate } = rangeBounds(from, to);
       return apiRequest(
-        `/closed-sales?lowdate=${lowdate}&highdate=${highdate}&datefield=${dateField}`,
+        `/closed-sales?paidlow=${lowdate}&createdhigh=${highdate}`,
         { signal }
       );
     },

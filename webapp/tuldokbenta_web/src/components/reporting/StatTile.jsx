@@ -11,6 +11,9 @@
  * @param {string} props.value    already formatted
  * @param {string} [props.sub]    secondary figure, e.g. "30 paid"
  * @param {string} [props.hint]   the attribution rule, e.g. "paid in this range"
+ * @param {{label: string, value: string, sub?: string}[]} [props.breakdown]
+ *        Parts of the headline, shown beneath it. They must sum to `value` —
+ *        this is a decomposition, not a list of related numbers.
  * @param {React.ComponentType} [props.icon]
  * @param {"blue"|"green"|"amber"|"indigo"} [props.accent]
  */
@@ -33,7 +36,15 @@ const ACCENTS = {
   },
 };
 
-const StatTile = ({ label, value, sub, hint, icon: Icon, accent = "blue" }) => {
+const StatTile = ({
+  label,
+  value,
+  sub,
+  hint,
+  breakdown,
+  icon: Icon,
+  accent = "blue",
+}) => {
   const colors = ACCENTS[accent] ?? ACCENTS.blue;
 
   return (
@@ -62,8 +73,37 @@ const StatTile = ({ label, value, sub, hint, icon: Icon, accent = "blue" }) => {
         )}
       </div>
 
+      {breakdown?.length > 0 && (
+        <dl className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700 space-y-1.5">
+          {breakdown.map((part) => (
+            <div
+              key={part.label}
+              className="flex items-baseline justify-between gap-3"
+            >
+              <dt className="text-xs text-gray-600 dark:text-gray-400 min-w-0">
+                {part.label}
+              </dt>
+              <dd className="text-sm font-semibold text-gray-800 dark:text-gray-100 flex-shrink-0 tabular-nums">
+                {part.value}
+                {part.sub && (
+                  <span className="ml-1.5 text-xs font-normal text-gray-500 dark:text-gray-400">
+                    {part.sub}
+                  </span>
+                )}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      )}
+
       {hint && (
-        <p className="text-xs text-gray-500 dark:text-gray-400 mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
+        <p
+          className={`text-xs text-gray-500 dark:text-gray-400 mt-3 ${
+            breakdown?.length > 0
+              ? ""
+              : "pt-3 border-t border-gray-200 dark:border-gray-700"
+          }`}
+        >
           {hint}
         </p>
       )}
