@@ -19,19 +19,22 @@ import {
  * The subcategory chips are the second pass at the same problem: 7 services
  * and 14 items in one flat grid is a lot of tiles to read past, and the groups
  * were already sitting in the data unused.
+ *
+ * The third pass dropped the "All" tab. It showed everything, which is the flat
+ * grid the chips exist to break up, and a three-button bar is a lot of width to
+ * spend on a phone. What is left is a binary: services or items.
  */
 
 const TABS = [
-  { id: "all", label: "All" },
-  { id: "items", label: "Items" },
   { id: "services", label: "Services" },
+  { id: "items", label: "Items" },
 ];
 
 const ALL_SUB = "__all__";
 
 const CatalogGrid = ({ inventory = [], services = [], onAddItem, onAddService }) => {
   const [query, setQuery] = useState("");
-  const [tab, setTab] = useState("all");
+  const [tab, setTab] = useState("services");
   const [subcategory, setSubcategory] = useState(ALL_SUB);
 
   const term = query.trim().toLowerCase();
@@ -46,12 +49,9 @@ const CatalogGrid = ({ inventory = [], services = [], onAddItem, onAddService })
     ? subcategory
     : ALL_SUB;
 
-  // Only one group is worth chips; a lone chip filters nothing.
-  const showSubcategories = tab !== "services" && subcategories.length > 1;
-
-  const shownItems = useMemo(() => {
-    if (tab === "services") return [];
-
+  // Both sides are matched regardless of which one is showing, so the slider
+  // can be pointed at whichever actually has results.
+  const matchedItems = useMemo(() => {
     const inGroup =
       activeSub === ALL_SUB
         ? inventory
@@ -63,29 +63,45 @@ const CatalogGrid = ({ inventory = [], services = [], onAddItem, onAddService })
         i.item_name?.toLowerCase().includes(term) ||
         i.item_classification?.toLowerCase().includes(term)
     );
-  }, [inventory, tab, term, activeSub]);
+  }, [inventory, term, activeSub]);
 
-  const shownServices = useMemo(() => {
-    if (tab === "items") return [];
+  const matchedServices = useMemo(() => {
     if (!term) return services;
     return services.filter(
       (s) =>
         s.service_name?.toLowerCase().includes(term) ||
         (s.freebies || []).some((f) => f.toLowerCase().includes(term))
     );
-  }, [services, tab, term]);
+  }, [services, term]);
+
+  // Search reaches across the slider. Without an "All" tab, a term that only
+  // matches the other side would render an empty grid with the answer one tap
+  // away and nothing saying so — so the slider goes to the side that has the
+  // results. The thumb moving is what explains where they came from, the same
+  // way the chips explain themselves.
+  const effectiveTab = useMemo(() => {
+    if (!term) return tab;
+    if (tab === "services" && matchedServices.length === 0 && matchedItems.length > 0)
+      return "items";
+    if (tab === "items" && matchedItems.length === 0 && matchedServices.length > 0)
+      return "services";
+    return tab;
+  }, [tab, term, matchedItems, matchedServices]);
+
+  const shownItems = effectiveTab === "items" ? matchedItems : [];
+  const shownServices = effectiveTab === "services" ? matchedServices : [];
+
+  // Only one group is worth chips; a lone chip filters nothing.
+  const showSubcategories = effectiveTab === "items" && subcategories.length > 1;
 
   const selectTab = (id) => {
     setTab(id);
     setSubcategory(ALL_SUB);
-  };
-
-  const selectSubcategory = (value) => {
-    setSubcategory(value);
-    // Picking a subcategory means you are browsing items, so move off "All"
-    // rather than leaving every service sitting above the filtered group. The
-    // Items tab lighting up is also what explains where the services went.
-    if (value !== ALL_SUB && tab === "all") setTab("items");
+    // Clearing the search is what stops the flip above from fighting the tap:
+    // otherwise tapping the side a live query has no matches on would bounce
+    // straight back and read as a dead button. Choosing a side means "browse
+    // this side", so the term that was steering the view is done.
+    setQuery("");
   };
 
   const isEmpty = shownItems.length === 0 && shownServices.length === 0;
@@ -108,22 +124,32 @@ const CatalogGrid = ({ inventory = [], services = [], onAddItem, onAddService })
           className="flex-1"
         />
 
+        {/* Two positions, so it's a slider rather than a row of buttons: the
+            thumb is the only thing that moves, and where it sits is the whole
+            state. The track's p-1 makes calc(50% - 0.25rem) exactly half the
+            inner width, which is also how far translate-x-full moves it. */}
         <div
           role="tablist"
           aria-label="Filter catalog"
-          className="flex rounded-md overflow-hidden border border-gray-300 dark:border-gray-600 flex-shrink-0"
+          className="relative flex w-full sm:w-56 flex-shrink-0 rounded-full bg-gray-200 dark:bg-gray-700 p-1"
         >
+          <span
+            aria-hidden="true"
+            className={`absolute inset-y-1 left-1 w-[calc(50%-0.25rem)] rounded-full bg-blue-600 shadow transition-transform duration-200 motion-reduce:transition-none ${
+              effectiveTab === "items" ? "translate-x-full" : "translate-x-0"
+            }`}
+          />
           {TABS.map((t) => (
             <button
               key={t.id}
               type="button"
               role="tab"
-              aria-selected={tab === t.id}
+              aria-selected={effectiveTab === t.id}
               onClick={() => selectTab(t.id)}
-              className={`flex-1 sm:flex-none px-4 min-h-11 text-sm font-medium transition-colors ${
-                tab === t.id
-                  ? "bg-blue-600 text-white"
-                  : "bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+              className={`relative z-10 flex-1 min-h-11 rounded-full text-sm font-medium transition-colors ${
+                effectiveTab === t.id
+                  ? "text-white"
+                  : "text-gray-700 dark:text-gray-300"
               }`}
             >
               {t.label}
@@ -142,7 +168,7 @@ const CatalogGrid = ({ inventory = [], services = [], onAddItem, onAddService })
             type="button"
             role="tab"
             aria-selected={activeSub === ALL_SUB}
-            onClick={() => selectSubcategory(ALL_SUB)}
+            onClick={() => setSubcategory(ALL_SUB)}
             className={chipClass(activeSub === ALL_SUB)}
           >
             All Items
@@ -153,7 +179,7 @@ const CatalogGrid = ({ inventory = [], services = [], onAddItem, onAddService })
               type="button"
               role="tab"
               aria-selected={activeSub === name}
-              onClick={() => selectSubcategory(name)}
+              onClick={() => setSubcategory(name)}
               className={chipClass(activeSub === name)}
             >
               {subcategoryLabel(name)}

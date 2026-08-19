@@ -25,29 +25,34 @@ const services = [
 // ---------------------------------------------------------------------------
 // CatalogGrid
 // ---------------------------------------------------------------------------
+/** The grid is a two-position slider now; most cases start on Services. */
+const renderGrid = (props = {}) =>
+  render(
+    <CatalogGrid
+      inventory={inventory}
+      services={services}
+      onAddItem={vi.fn()}
+      onAddService={vi.fn()}
+      {...props}
+    />
+  );
+
+const showItems = () => fireEvent.click(screen.getByRole("tab", { name: "Items" }));
+
 describe("CatalogGrid", () => {
-  it("shows items and services together by default", () => {
-    render(
-      <CatalogGrid
-        inventory={inventory}
-        services={services}
-        onAddItem={vi.fn()}
-        onAddService={vi.fn()}
-      />
-    );
-    expect(screen.getByText("Ariel")).toBeInTheDocument();
+  it("opens on services, with items one tap away", () => {
+    renderGrid();
     expect(screen.getByText("Full Service")).toBeInTheDocument();
+    expect(screen.queryByText("Ariel")).not.toBeInTheDocument();
+
+    showItems();
+    expect(screen.getByText("Ariel")).toBeInTheDocument();
+    expect(screen.queryByText("Full Service")).not.toBeInTheDocument();
   });
 
   it("narrows the catalog by name", () => {
-    render(
-      <CatalogGrid
-        inventory={inventory}
-        services={services}
-        onAddItem={vi.fn()}
-        onAddService={vi.fn()}
-      />
-    );
+    renderGrid();
+    showItems();
 
     fireEvent.change(screen.getByLabelText(/search catalog/i), {
       target: { value: "ariel" },
@@ -59,14 +64,8 @@ describe("CatalogGrid", () => {
   });
 
   it("narrows the catalog by classification", () => {
-    render(
-      <CatalogGrid
-        inventory={inventory}
-        services={services}
-        onAddItem={vi.fn()}
-        onAddService={vi.fn()}
-      />
-    );
+    renderGrid();
+    showItems();
 
     fireEvent.change(screen.getByLabelText(/search catalog/i), {
       target: { value: "fabcon" },
@@ -75,61 +74,78 @@ describe("CatalogGrid", () => {
     expect(screen.queryByText("Ariel")).not.toBeInTheDocument();
   });
 
-  it("filters to services only", () => {
-    render(
-      <CatalogGrid
-        inventory={inventory}
-        services={services}
-        onAddItem={vi.fn()}
-        onAddService={vi.fn()}
-      />
+  it("filters to items only", () => {
+    renderGrid();
+
+    showItems();
+    expect(screen.getByText("Ariel")).toBeInTheDocument();
+    expect(screen.queryByText("Full Service")).not.toBeInTheDocument();
+  });
+
+  // Without an "All" tab a term that only matches the other side would render
+  // an empty grid with the answer one tap away and nothing saying so.
+  it("moves the slider to whichever side the search matches", () => {
+    renderGrid();
+
+    // Starts on Services; "ariel" only exists among items.
+    fireEvent.change(screen.getByLabelText(/search catalog/i), {
+      target: { value: "ariel" },
+    });
+    expect(screen.getByText("Ariel")).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Items" })).toHaveAttribute(
+      "aria-selected",
+      "true"
     );
 
-    fireEvent.click(screen.getByRole("tab", { name: "Services" }));
+    // And back the other way.
+    fireEvent.change(screen.getByLabelText(/search catalog/i), {
+      target: { value: "full" },
+    });
     expect(screen.getByText("Full Service")).toBeInTheDocument();
-    expect(screen.queryByText("Ariel")).not.toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Services" })).toHaveAttribute(
+      "aria-selected",
+      "true"
+    );
+  });
+
+  // Otherwise the auto-move above would drag the slider straight back and the
+  // tab would read as a dead button.
+  it("clears the search when a side is chosen by hand", () => {
+    renderGrid();
+
+    const search = screen.getByLabelText(/search catalog/i);
+    fireEvent.change(search, { target: { value: "ariel" } });
+    fireEvent.click(screen.getByRole("tab", { name: "Services" }));
+
+    expect(search).toHaveValue("");
+    expect(screen.getByText("Full Service")).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Services" })).toHaveAttribute(
+      "aria-selected",
+      "true"
+    );
   });
 
   it("marks an out-of-stock item without hiding it", () => {
-    render(
-      <CatalogGrid
-        inventory={inventory}
-        services={services}
-        onAddItem={vi.fn()}
-        onAddService={vi.fn()}
-      />
-    );
+    renderGrid();
+    showItems();
     expect(screen.getByText("Out of stock")).toBeInTheDocument();
   });
 
   it("adds the tapped item and service", () => {
     const onAddItem = vi.fn();
     const onAddService = vi.fn();
-    render(
-      <CatalogGrid
-        inventory={inventory}
-        services={services}
-        onAddItem={onAddItem}
-        onAddService={onAddService}
-      />
-    );
-
-    fireEvent.click(screen.getByText("Ariel"));
-    expect(onAddItem).toHaveBeenCalledWith(inventory[0]);
+    renderGrid({ onAddItem, onAddService });
 
     fireEvent.click(screen.getByText("Full Service"));
     expect(onAddService).toHaveBeenCalledWith(services[0]);
+
+    showItems();
+    fireEvent.click(screen.getByText("Ariel"));
+    expect(onAddItem).toHaveBeenCalledWith(inventory[0]);
   });
 
-  it("says so when nothing matches", () => {
-    render(
-      <CatalogGrid
-        inventory={inventory}
-        services={services}
-        onAddItem={vi.fn()}
-        onAddService={vi.fn()}
-      />
-    );
+  it("says so when nothing matches on either side", () => {
+    renderGrid();
     fireEvent.change(screen.getByLabelText(/search catalog/i), {
       target: { value: "zzz" },
     });
