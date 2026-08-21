@@ -26,6 +26,37 @@ const SIZES = {
   xl: "sm:max-w-2xl",
 };
 
+/**
+ * Body scroll lock, counted across every dialog rather than saved and restored
+ * by each one.
+ *
+ * Each Modal used to capture `document.body.style.overflow` when it opened and
+ * write that value back when it closed. Dialogs in this app overlap — an edit
+ * sheet and its confirm prompt, the cart and its unclaimed-freebie warning — and
+ * the second to open captured "hidden" from the first. Whichever unmounted last
+ * then wrote "hidden" back, and the page stayed unscrollable until a reload.
+ *
+ * With a count, only the first dialog stores the real value and only the last
+ * one out restores it, so the order they close in stops mattering.
+ */
+let openCount = 0;
+let overflowBeforeLock = "";
+
+const lockBodyScroll = () => {
+  if (openCount === 0) {
+    overflowBeforeLock = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+  }
+  openCount += 1;
+
+  return () => {
+    // Floored: a count that ever went negative would leave the page locked for
+    // the rest of the session, which is the bug this replaced.
+    openCount = Math.max(0, openCount - 1);
+    if (openCount === 0) document.body.style.overflow = overflowBeforeLock;
+  };
+};
+
 const Modal = ({
   open,
   onClose,
@@ -42,7 +73,7 @@ const Modal = ({
 }) => {
   const panelRef = useRef(null);
 
-  // Escape closes, and the page behind stops scrolling while a dialog is up.
+  // Escape closes.
   useEffect(() => {
     if (!open) return;
 
@@ -50,17 +81,23 @@ const Modal = ({
       if (e.key === "Escape") onClose?.();
     };
     document.addEventListener("keydown", onKeyDown);
-
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-
-    panelRef.current?.focus();
-
-    return () => {
-      document.removeEventListener("keydown", onKeyDown);
-      document.body.style.overflow = previousOverflow;
-    };
+    return () => document.removeEventListener("keydown", onKeyDown);
   }, [open, onClose]);
+
+  // The page behind stops scrolling while a dialog is up.
+  //
+  // Kept apart from the Escape listener, and deliberately depending on `open`
+  // alone: most callers pass an inline arrow as `onClose`, so a shared effect
+  // tears down and re-runs on every render of the parent, releasing and
+  // retaking the lock each time.
+  useEffect(() => {
+    if (!open) return;
+    return lockBodyScroll();
+  }, [open]);
+
+  useEffect(() => {
+    if (open) panelRef.current?.focus();
+  }, [open]);
 
   if (!open) return null;
 
