@@ -260,8 +260,13 @@ const Reporting = () => {
           <PaymentBreakdownChart paymentMethodBreakdown={analytics.payments} />
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* All three of these count what left the shop, so they follow
+                sales *booked* in the range — stock moves when a sale is
+                created, not when it is paid. Their revenue columns therefore
+                reconcile with the Booked tile, not Collected. */}
             <BreakdownPanel
               title="Services sold"
+              subtitle="Booked in this range, paid or not"
               rows={analytics.lines.services}
               columns={[
                 { key: "name", label: "Service" },
@@ -279,6 +284,7 @@ const Reporting = () => {
 
             <BreakdownPanel
               title="Item categories"
+              subtitle="Booked in this range, paid or not"
               rows={analytics.lines.itemGroups}
               columns={[
                 { key: "category", label: "Category" },
@@ -297,6 +303,7 @@ const Reporting = () => {
 
           <BreakdownPanel
             title="Items used"
+            subtitle="Stock that left the shelf on sales booked in this range, paid or not"
             rows={analytics.lines.items}
             columns={[
               { key: "name", label: "Item" },

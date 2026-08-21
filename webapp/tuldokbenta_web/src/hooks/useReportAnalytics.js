@@ -93,10 +93,18 @@ export function useReportAnalytics({
         stillOwed: summarize(carriedSplit.no),
       },
       rangeEnd: end,
+      // Keyed to what was collected: a payment method is only meaningful once
+      // money has actually arrived, and an unpaid sale has no method to count.
       payments: paymentBreakdown(collected),
-      // Keyed to what was collected: these sit under the revenue charts, and
-      // mixing in unpaid lines would inflate them past the money.
-      lines: lineBreakdown(collected),
+      // Keyed to what was *booked*, because this is the stock question. Stock
+      // leaves the shelf when a sale is created — createOpenSale deducts it in
+      // the same transaction as the insert — not when it is eventually paid. Run
+      // against `collected` these panels showed a slow-paying week as though
+      // nothing had left the shop, and hid the items that actually went out.
+      //
+      // The revenue columns beside those counts therefore follow Booked, not
+      // Collected. That is the honest pairing: they describe one population.
+      lines: lineBreakdown(booked),
       trend: trendSeries({
         collected,
         booked,

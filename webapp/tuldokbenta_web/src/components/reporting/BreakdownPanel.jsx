@@ -9,6 +9,9 @@ import { formatCurrency } from "../../utils/format";
  *
  * @param {object} props
  * @param {string} props.title
+ * @param {string} [props.subtitle] which sales the rows describe — worth saying
+ *        out loud, because the report counts more than one population and a
+ *        table of numbers cannot tell you which one it came from.
  * @param {object[]} props.rows
  * @param {{key: string, label: string, align?: "left"|"center"|"right",
  *          money?: boolean, total?: boolean}[]} props.columns
@@ -18,6 +21,7 @@ import { formatCurrency } from "../../utils/format";
  */
 const BreakdownPanel = ({
   title,
+  subtitle,
   rows = [],
   columns,
   emptyMessage,
@@ -36,9 +40,16 @@ const BreakdownPanel = ({
 
   return (
     <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-sm p-4 sm:p-6 transition-colors">
-      <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-100 mb-4">
-        {title}
-      </h3>
+      <div className="mb-4">
+        <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-100">
+          {title}
+        </h3>
+        {subtitle && (
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
+            {subtitle}
+          </p>
+        )}
+      </div>
 
       {visible.length === 0 ? (
         <p className="text-gray-500 dark:text-gray-400 text-center italic py-8">
