@@ -71,6 +71,46 @@ export const freebieGapsFromSaleItems = (items = []) =>
   );
 
 /**
+ * Trims freebie choices so no classification claims more than `slots` picks.
+ *
+ * `freebieGaps` above only reports *under*-claiming, which leaves the opposite
+ * mistake unguarded: lowering a service's quantity after its freebies were
+ * claimed strands the surplus. Every surplus pick becomes a real price-0
+ * inventory line the backend deducts stock for, so a service taken from qty 3
+ * down to qty 1 would keep giving away three items.
+ *
+ * Choices are spent in order against a running budget — the earlier picks are
+ * the ones the cashier made first, so they're the ones to keep.
+ *
+ * @param {{classification: string, choices: {item: string, qty: number}[]}[]} freebies
+ * @param {number} slots free picks available per classification
+ */
+export const clampFreebieChoices = (freebies = [], slots) => {
+  if (!Array.isArray(freebies)) return freebies;
+  const budget = Math.max(0, Number(slots) || 0);
+
+  return freebies.map((f) => {
+    const choices = Array.isArray(f?.choices) ? f.choices : [];
+    let left = budget;
+
+    const clamped = [];
+    for (const choice of choices) {
+      if (left <= 0) break; // budget spent — the rest of the picks are surplus
+      const qty = Math.max(1, Math.floor(Number(choice?.qty) || 1));
+      const allowed = Math.min(qty, left);
+      clamped.push(allowed === qty ? choice : { ...choice, qty: allowed });
+      left -= allowed;
+    }
+
+    // Same array when nothing was trimmed, so React sees no change.
+    return clamped.length === choices.length &&
+      clamped.every((c, i) => c === choices[i])
+      ? f
+      : { ...f, choices: clamped };
+  });
+};
+
+/**
  * Human-readable lines for the confirmation dialog, e.g.
  * "Full Service — 1 Detergent not claimed" / "Full Service — a Plastic freebie has no item chosen".
  */

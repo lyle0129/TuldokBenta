@@ -6,7 +6,14 @@ import DeleteSaleModal from "../sales-modals/DeleteSaleModal";
 import SearchInput from "../shared/SearchInput";
 import Pagination from "../shared/Pagination";
 import { filterSales } from "../../utils/filterSales";
+import { isFreeLine } from "../../utils/buildSaleItems";
 import { formatCurrency, formatDateTime, saleTotal } from "../../utils/format";
+import {
+  saleCardClass,
+  saleActionsClass,
+  rowActionClass,
+  rowActionAccents,
+} from "../shared/fieldStyles";
 
 const ListSales = ({
   openSales,
@@ -16,8 +23,9 @@ const ListSales = ({
   inventory,
   services,
 }) => {
+  // Being non-null *is* the open state; the modal deep-clones it into its own
+  // draft, so this stays the untouched row straight out of the list.
   const [editingSale, setEditingSale] = useState(null);
-  const [showModal, setShowModal] = useState(false);
   const [payingSale, setPayingSale] = useState(null);
   const [deletingSale, setDeletingSale] = useState(null);
 
@@ -54,10 +62,13 @@ const ListSales = ({
   };
 
   const openEditModal = (sale) => {
-    // Deep clone so staged edits can be abandoned with Cancel.
-    setEditingSale(JSON.parse(JSON.stringify(sale)));
+    setEditingSale(sale);
     setEditError(null);
-    setShowModal(true);
+  };
+
+  const closeEditModal = () => {
+    setEditingSale(null);
+    setEditError(null);
   };
 
   const handleSaveEdit = async (updatedSale) => {
@@ -73,8 +84,7 @@ const ListSales = ({
       return;
     }
 
-    setShowModal(false);
-    setEditError(null);
+    closeEditModal();
     flashSuccess(`Invoice #${updatedSale.invoice_number} updated.`);
   };
 
@@ -109,14 +119,9 @@ const ListSales = ({
               const total = saleTotal(sale);
 
               return (
-                <div
-                  key={sale.id}
-                  className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 
-                            rounded-xl shadow-sm p-4 sm:p-5 flex flex-col sm:flex-row sm:items-start 
-                            sm:justify-between gap-4 hover:shadow-md transition-shadow duration-200"
-                >
+                <div key={sale.id} className={saleCardClass}>
                   {/* Sale details */}
-                  <div className="flex-1">
+                  <div className="flex-1 min-w-0">
                     <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-100">
                       Invoice #{sale.invoice_number}
                     </h3>
@@ -141,52 +146,63 @@ const ListSales = ({
                       </span>
                     </p>
 
+                    {/* Freebie lines are marked rather than folded away, the
+                        same as the closed-sales list: a price-0 line is still
+                        stock leaving the shelf, and a cashier checking the
+                        order needs to see it. */}
                     <ul className="mt-2 text-sm text-gray-600 dark:text-gray-300 list-disc pl-5 space-y-0.5">
                       {sale.items.map((it, i) => (
-                        <li key={i}>
+                        <li
+                          key={i}
+                          className={
+                            isFreeLine(it)
+                              ? "text-green-600 dark:text-green-400"
+                              : ""
+                          }
+                        >
                           {it.type === "service"
                             ? `${it.service_name} ×${it.qty || 1}`
                             : `${it.item_name} ×${it.qty || 1}`}
+                          {isFreeLine(it) && " (free)"}
                         </li>
                       ))}
                     </ul>
                   </div>
 
                   {/* Action buttons */}
-                  <div className="flex flex-wrap justify-end gap-2 sm:gap-3">
+                  <div className={saleActionsClass}>
                     {/* Adding, removing and re-quantifying all happen inside
                         the edit modal now, so they commit as one update. */}
                     <button
+                      type="button"
                       onClick={() => openEditModal(sale)}
-                      className="px-3 py-1.5 bg-yellow-400 text-white rounded-md text-sm font-medium
-                                hover:bg-yellow-500 transition-colors shadow-sm"
+                      className={rowActionClass(rowActionAccents.blue)}
                     >
                       Edit
                     </button>
 
                     <button
-                      onClick={() => setDeletingSale(sale)}
-                      className="px-3 py-1.5 bg-red-500 text-white rounded-md text-sm font-medium 
-                                hover:bg-red-600 transition-colors shadow-sm"
-                    >
-                      Delete
-                    </button>
-
-                    <button
+                      type="button"
                       onClick={() => setPayingSale(sale)}
-                      className="px-3 py-1.5 bg-purple-600 text-white rounded-md text-sm font-medium 
-                                hover:bg-purple-700 transition-colors shadow-sm"
+                      className={rowActionClass(rowActionAccents.green)}
                     >
                       Pay
                     </button>
 
                     <button
+                      type="button"
                       onClick={() => printInvoice(sale)}
-                      className="px-3 py-1.5 border border-green-600 text-green-700 dark:text-green-400 
-                                dark:border-green-500 rounded-md text-sm font-medium hover:bg-green-50 
-                                dark:hover:bg-green-900/30 transition-colors shadow-sm"
+                      className={rowActionClass(rowActionAccents.purple)}
                     >
-                      Print Receipt
+                      Print
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setDeletingSale(sale)}
+                      className={rowActionClass(rowActionAccents.red)}
+                    >
+                      Delete
                     </button>
                   </div>
                 </div>
@@ -206,17 +222,9 @@ const ListSales = ({
 
       {/* Edit Modal */}
       <EditSaleModal
-        sale={showModal ? editingSale : null}
-        onClose={() => {
-          setShowModal(false);
-          setEditError(null);
-        }}
+        sale={editingSale}
+        onClose={closeEditModal}
         onSave={handleSaveEdit}
-        onUpdate={(updater) => {
-          // Any further edit invalidates the last failure message.
-          setEditError(null);
-          setEditingSale(updater);
-        }}
         inventory={inventory}
         services={services}
         errorMessage={editError}

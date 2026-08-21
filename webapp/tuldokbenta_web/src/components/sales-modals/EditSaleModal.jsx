@@ -1,16 +1,31 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import Modal from "../shared/Modal";
 import ConfirmDialog from "../shared/ConfirmDialog";
 import SearchInput from "../shared/SearchInput";
 import FreebieEditor from "../open-sales/FreebieEditor";
 import { labelClass, inputClass } from "../shared/fieldStyles";
-import { syncFreebieLines, isFreebieLine } from "../../utils/buildSaleItems";
-import { freebieGapsFromSaleItems, describeFreebieGaps } from "../../utils/freebies";
+import {
+  hydrateSaleItems,
+  flattenSaleItems,
+  isFreebieLine,
+  isFreeLine,
+} from "../../utils/buildSaleItems";
+import {
+  freebieGapsFromSaleItems,
+  describeFreebieGaps,
+  clampFreebieChoices,
+} from "../../utils/freebies";
 import { formatCurrency } from "../../utils/format";
 
 /**
- * Edit an open sale: change quantities, remove lines, and add new items or
- * services — all staged locally and committed in a single save.
+ * Edit a sale that hasn't been paid yet: change quantities, remove lines, add
+ * new items or services, and pick the freebies each service grants — all staged
+ * locally and committed in a single save.
+ *
+ * Shared by the online list and the offline queue, which is why it stages a
+ * plain sale object and hands the whole thing back to `onSave` rather than
+ * knowing anything about ids, endpoints or localStorage. The offline page also
+ * passes `allowInvoiceEdit`, since it owns its own invoice numbers.
  *
  * Every handler replaces objects rather than mutating them. The previous
  * version assigned straight into `updated.items[idx]`, mutating objects React
@@ -21,37 +36,85 @@ const EditSaleModal = ({
   sale,
   onClose,
   onSave,
-  onUpdate,
   inventory = [],
   services = [],
   errorMessage = null,
   isSaving = false,
+  allowInvoiceEdit = false,
 }) => {
+  // The staged copy. Owned here rather than by the caller: this modal is
+  // mounted once and fed whichever row was clicked, so anything left in the
+  // caller's hands bleeds from one sale onto the next. That was a live bug —
+  // dismissing the freebie warning on one sale and opening another re-raised
+  // it, and confirming it saved the *second* sale.
+  const [draft, setDraft] = useState(null);
   const [showPicker, setShowPicker] = useState(false);
   const [pickerTab, setPickerTab] = useState("inventory");
   const [pickerQuery, setPickerQuery] = useState("");
   const [localError, setLocalError] = useState(null);
   const [freebieGaps, setFreebieGaps] = useState(null);
+  // Any edit invalidates the last failure the server reported — "Not enough
+  // stock for X" stops being true the moment X's quantity is changed.
+  const [editedSinceSave, setEditedSinceSave] = useState(false);
 
-  if (!sale) return null;
+  /** The sale the draft was built from, and whether it has been touched since. */
+  const seededFrom = useRef(null);
+  const touched = useRef(false);
+
+  // Declared above the null guard: hooks must run in the same order on every
+  // render. Reseeds everything, not just the draft — a stale error or a stale
+  // warning is just as wrong as stale lines.
+  //
+  // The catalog is a dependency because the draft is built from it: a sale
+  // opened before inventory and services have landed would hydrate against an
+  // empty catalog and show every freebie as a loose line. Re-seeding when it
+  // arrives fixes that — but only while the draft is untouched, or a background
+  // refetch would throw away edits in progress.
+  useEffect(() => {
+    const isNewSale = seededFrom.current !== sale;
+    if (!isNewSale && touched.current) return;
+
+    seededFrom.current = sale;
+    touched.current = false;
+
+    setDraft(
+      sale
+        ? {
+            ...structuredClone(sale),
+            items: hydrateSaleItems(structuredClone(sale.items ?? []), {
+              services,
+              inventory,
+            }),
+          }
+        : null
+    );
+    setLocalError(null);
+    setFreebieGaps(null);
+    setShowPicker(false);
+    setPickerQuery("");
+    setEditedSinceSave(false);
+  }, [sale, services, inventory]);
+
+  // `draft` lands one render behind `sale`, since effects run after paint.
+  if (!sale || !draft) return null;
 
   /** Replaces `items` with the result of `fn`, leaving everything else alone. */
   const setItems = (fn) => {
     setLocalError(null);
-    onUpdate((prev) => ({ ...prev, items: fn(prev.items) }));
+    setEditedSinceSave(true);
+    touched.current = true;
+    setDraft((prev) => ({ ...prev, items: fn(prev.items) }));
   };
 
   const mapLine = (idx, fn) =>
     setItems((items) => items.map((it, i) => (i === idx ? fn(it) : it)));
 
-  /**
-   * The one field on the sale that isn't a line. Emptying it is a real edit —
-   * the server reads "" as "clear the name" rather than "leave it alone", so a
-   * name typed onto the wrong sale can be taken back off.
-   */
-  const setCustomerName = (value) => {
+  /** The fields on the sale that aren't lines. */
+  const setField = (key, value) => {
     setLocalError(null);
-    onUpdate((prev) => ({ ...prev, customer_name: value }));
+    setEditedSinceSave(true);
+    touched.current = true;
+    setDraft((prev) => ({ ...prev, [key]: value }));
   };
 
   /**
@@ -73,7 +136,15 @@ const EditSaleModal = ({
     // Clamp here rather than trusting the `min` attribute — typing over the
     // field yields "" (Number("") === 0) and paste bypasses it entirely.
     const qty = Math.max(1, Math.floor(Number(raw) || 1));
-    mapLine(idx, (it) => ({ ...it, qty }));
+    mapLine(idx, (it) =>
+      // Lowering a service's quantity strands any freebie already claimed
+      // against the slots that just disappeared. Trim them with the quantity so
+      // FreebieEditor's "N left to claim" is honest while the cashier is still
+      // looking at it; syncFreebieLines enforces the same rule on save.
+      it.type === "service" && Array.isArray(it.freebies)
+        ? { ...it, qty, freebies: clampFreebieChoices(it.freebies, qty) }
+        : { ...it, qty }
+    );
   };
 
   /** Adding something already on the sale bumps its quantity, not a second row. */
@@ -140,20 +211,31 @@ const EditSaleModal = ({
   const removeModalFreebieChoice = (idx, classification, cIdx) =>
     mapFreebies(idx, classification, (choices) => choices.filter((_, i) => i !== cIdx));
 
-  const commitSave = () =>
-    // Rebuild the derived price-0 freebie lines so the stock they consume
-    // matches the service quantities as they now stand.
-    onSave({ ...sale, items: syncFreebieLines(sale.items) });
+  const commitSave = () => {
+    // Cleared before the call, not after: `onSave` is async and the caller sets
+    // `errorMessage` when it resolves, so clearing afterwards would hide the
+    // failure we just asked for.
+    setEditedSinceSave(false);
+    // Back to the stored shape: each service's picks become plain price-0 item
+    // lines and the `freebies` array comes off, so the sale is saved the way it
+    // has always been saved.
+    return onSave({ ...draft, items: flattenSaleItems(draft.items) });
+  };
 
   const handleSave = () => {
-    if (sale.items.length === 0) {
+    if (draft.items.length === 0) {
       setLocalError("A sale needs at least one line. Delete the sale instead.");
+      return;
+    }
+
+    if (allowInvoiceEdit && !String(draft.invoice_number ?? "").trim()) {
+      setLocalError("A sale needs an invoice number.");
       return;
     }
 
     // Same guard as checkout: an edit can just as easily leave a freebie the
     // service granted unclaimed.
-    const gaps = freebieGapsFromSaleItems(sale.items);
+    const gaps = freebieGapsFromSaleItems(draft.items);
     if (gaps.length > 0) {
       setFreebieGaps(gaps);
       return;
@@ -161,17 +243,29 @@ const EditSaleModal = ({
     commitSave();
   };
 
-  // Freebie lines are derived, not directly editable — they follow their service.
-  const editableLines = sale.items
+  /**
+   * Which lines get a row of their own.
+   *
+   * Only *tagged* lines are hidden: those are regenerated from the service that
+   * granted them, and are already on screen inside its FreebieEditor, so an
+   * editable row would be a second control for the same thing.
+   *
+   * A plain price-0 line is a different animal. Most sales on file record their
+   * freebies that way — a bare `{ type: "item", price: 0, item_name: "Plastic" }`
+   * with nothing tying it to a service — and nothing else renders it, so hiding
+   * it would make the freebie uneditable and invisible at once. It stays a
+   * normal row, marked Free.
+   */
+  const editableLines = draft.items
     .map((it, idx) => ({ line: it, idx }))
     .filter(({ line }) => !isFreebieLine(line));
 
-  const total = sale.items.reduce(
+  const total = draft.items.reduce(
     (sum, it) => sum + Number(it.price || 0) * Number(it.qty || 0),
     0
   );
 
-  const shownError = localError || errorMessage;
+  const shownError = localError || (editedSinceSave ? null : errorMessage);
 
   const pickerTerm = pickerQuery.trim().toLowerCase();
   const pickerItems = inventory.filter(
@@ -228,14 +322,35 @@ const EditSaleModal = ({
         )}
 
         <div className="mb-4 pb-4 border-b border-gray-200 dark:border-gray-700">
+          {/* Offline only. The server hands out online invoice numbers, but a
+              queued sale keeps its own, and a duplicate is exactly what the
+              sync rejects — so it has to be fixable by hand. */}
+          {allowInvoiceEdit && (
+            <div className="mb-4">
+              <label htmlFor="edit-invoice-number" className={labelClass}>
+                Invoice number
+              </label>
+              <input
+                id="edit-invoice-number"
+                type="text"
+                value={draft.invoice_number ?? ""}
+                onChange={(e) => setField("invoice_number", e.target.value)}
+                className={`${inputClass} sm:w-48 font-mono`}
+              />
+            </div>
+          )}
+
           <label htmlFor="edit-customer-name" className={labelClass}>
             Customer <span className="font-normal text-gray-500">(optional)</span>
           </label>
           <input
             id="edit-customer-name"
             type="text"
-            value={sale.customer_name ?? ""}
-            onChange={(e) => setCustomerName(e.target.value)}
+            value={draft.customer_name ?? ""}
+            /* Emptying it is a real edit — the server reads "" as "clear the
+               name" rather than "leave it alone", so a name typed onto the
+               wrong sale can be taken back off. */
+            onChange={(e) => setField("customer_name", e.target.value)}
             placeholder="Who is this sale for?"
             maxLength={255}
             className={inputClass}
@@ -255,6 +370,11 @@ const EditSaleModal = ({
                 <div>
                   <p className="font-medium text-gray-800 dark:text-gray-100">
                     {it.type === "service" ? it.service_name : it.item_name}
+                    {isFreeLine(it) && (
+                      <span className="ml-2 align-middle rounded px-1.5 py-0.5 text-xs font-semibold uppercase tracking-wide bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300">
+                        Free
+                      </span>
+                    )}
                   </p>
                   <input
                     type="number"

@@ -14,17 +14,11 @@
 
 import { shiftDay, toISODate } from "./dateRange";
 import { saleTotal } from "./format";
-import { isFreebieLine } from "./buildSaleItems";
+import { isFreeLine } from "./buildSaleItems";
 
-/**
- * A line that earns nothing: either tagged as a freebie, or priced at zero.
- *
- * The tag is authoritative for anything sold since it was introduced, but sales
- * predating it only have the price to go on — the old reports keyed entirely
- * off `price > 0`, so dropping that test would reclassify historic freebies as
- * paid items worth ₱0.
- */
-const isFreeLine = (line) => isFreebieLine(line) || Number(line?.price || 0) === 0;
+// `isFreeLine` used to be defined here. It moved to buildSaleItems so the sale
+// lists and the edit modal mark a freebie by the same rule the report counts
+// one by — they disagreed, and the lists were the ones getting it wrong.
 
 const lineQty = (line) => Number(line?.qty || 1);
 const lineRevenue = (line) => Number(line?.price || 0) * lineQty(line);

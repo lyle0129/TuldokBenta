@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import Modal from "../shared/Modal";
 import { usePaymentMethods } from "../../hooks/usePaymentMethods";
 import { alertClass, noticeClass } from "../shared/fieldStyles";
@@ -7,6 +7,12 @@ const PaySaleModal = ({ sale, onClose, onConfirm }) => {
   // Declared before the null guard: hooks must run in the same order on every
   // render, and the guard used to sit above them.
   const [paymentMethod, setPaymentMethod] = useState("");
+
+  // Reseed when a different sale is opened; this modal is mounted once and fed
+  // whichever row was clicked. Without it the last invoice's method is
+  // preselected with Confirm already enabled, and one misclick records the
+  // wrong method on the next sale.
+  useEffect(() => setPaymentMethod(""), [sale]);
 
   // The list is read here rather than drilled down from OpenSales, which is how
   // `paySale` arrives: this modal is its only consumer, and the query cache is

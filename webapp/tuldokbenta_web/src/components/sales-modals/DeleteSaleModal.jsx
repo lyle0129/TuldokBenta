@@ -1,10 +1,16 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import Modal from "../shared/Modal";
 
 const DeleteSaleModal = ({ sale, onClose, onConfirm }) => {
   // Declared before the null guard: hooks must run in the same order on every
   // render, and the guard used to sit above them.
   const [confirmText, setConfirmText] = useState("");
+
+  // Reseed when a different sale is opened; this modal is mounted once and fed
+  // whichever row was clicked. Without it the word typed for the last delete is
+  // still in the box, so `canDelete` is already true on first render and the
+  // type-to-confirm guard is dead for every delete after the first.
+  useEffect(() => setConfirmText(""), [sale]);
 
   if (!sale) return null;
 

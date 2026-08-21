@@ -1,4 +1,5 @@
 import React, { forwardRef } from "react";
+import { displayLines } from "../../utils/buildSaleItems";
 
 const Invoice = forwardRef(({ sale }, ref) => {
   const total = sale.items.reduce(
@@ -49,8 +50,10 @@ const Invoice = forwardRef(({ sale }, ref) => {
       {sale.paid_at && <p>Paid: {new Date(sale.paid_at).toLocaleString()}</p>}
       <hr />
 
-      {/* 🧾 ITEMS */}
-      {sale.items.map((it, idx) => (
+      {/* 🧾 ITEMS — displayLines, not sale.items: a claimed freebie is stored
+          both nested under its service and as a price-0 stock line, so the raw
+          array printed every freebie twice. */}
+      {displayLines(sale.items).map((it, idx) => (
         <div key={idx} style={{ marginBottom: "4px" }}>
           <div style={{ display: "flex", justifyContent: "space-between" }}>
             <span>

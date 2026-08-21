@@ -1,11 +1,17 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { printInvoice } from "../../utils/printInvoice";
 import Pagination from "../shared/Pagination";
-import CustomerNameModal from "../sales-modals/CustomerNameModal";
-import { isFreebieLine } from "../../utils/buildSaleItems";
+import EditClosedSaleModal from "../sales-modals/EditClosedSaleModal";
+import { isFreeLine } from "../../utils/buildSaleItems";
 import { formatCurrency, formatDateTime, saleTotal } from "../../utils/format";
 import { usePaymentMethods } from "../../hooks/usePaymentMethods";
 import { buildMethodLookup, resolveMethod } from "../../utils/paymentMethods";
+import {
+  saleCardClass,
+  saleActionsClass,
+  rowActionClass,
+  rowActionAccents,
+} from "../shared/fieldStyles";
 
 const SALES_PER_PAGE = 10;
 
@@ -16,7 +22,7 @@ const ListClosedSales = ({
   emptyMessage = "No closed sales yet.",
 }) => {
   const [currentPage, setCurrentPage] = useState(1);
-  const [namingSale, setNamingSale] = useState(null);
+  const [editingSale, setEditingSale] = useState(null);
 
   // Rows store the method code; this turns it back into the admin's label.
   const { paymentMethods } = usePaymentMethods();
@@ -49,10 +55,7 @@ const ListClosedSales = ({
     <div className="text-gray-800 dark:text-gray-100">
       <div className="space-y-4">
         {currentSales.map((sale) => (
-          <div
-            key={sale.id}
-            className="border border-gray-200 dark:border-gray-700 rounded-lg shadow-sm p-4 sm:p-5 flex flex-col sm:flex-row sm:justify-between sm:items-start gap-4 bg-white dark:bg-gray-800 hover:shadow-md transition"
-          >
+          <div key={sale.id} className={saleCardClass}>
             <div className="min-w-0">
               <h3 className="font-semibold text-lg text-gray-900 dark:text-gray-100">
                 Invoice #{sale.invoice_number}
@@ -80,11 +83,11 @@ const ListClosedSales = ({
 
               <ul className="text-sm text-gray-600 dark:text-gray-300 list-disc pl-5 mt-2 space-y-0.5">
                 {sale.items.map((it, i) => (
-                  <li key={i} className={isFreebieLine(it) ? "text-green-600 dark:text-green-400" : ""}>
+                  <li key={i} className={isFreeLine(it) ? "text-green-600 dark:text-green-400" : ""}>
                     {it.type === "service"
                       ? `${it.service_name} ×${it.qty || 1}`
                       : `${it.item_name} ×${it.qty || 1}`}
-                    {isFreebieLine(it) && " (free)"}
+                    {isFreeLine(it) && " (free)"}
                   </li>
                 ))}
               </ul>
@@ -92,25 +95,26 @@ const ListClosedSales = ({
 
             {/* Full-width buttons on a phone; a narrow column from `sm:` up.
                 These used to be a fixed column that squeezed the invoice text
-                to a sliver on a narrow screen. */}
-            <div className="flex sm:flex-col gap-2 text-sm sm:flex-shrink-0">
+                to a sliver on a narrow screen. The recipe now lives in
+                fieldStyles so all three sales lists share it. */}
+            <div className={saleActionsClass}>
               <button
                 type="button"
                 onClick={() => revertSale(sale.id)}
-                className="flex-1 sm:flex-none px-4 min-h-11 bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200 rounded-md border border-yellow-200 dark:border-yellow-700 hover:bg-yellow-200 dark:hover:bg-yellow-800 font-medium transition"
+                className={rowActionClass(rowActionAccents.yellow)}
               >
                 Revert
               </button>
 
-              {/* Safe after payment because it touches nothing but the name —
-                  see updateClosedSale in closedSalesController. */}
+              {/* Safe after payment because it touches nothing that moves stock
+                  — see updateClosedSale in closedSalesController. */}
               {updateClosedSale && (
                 <button
                   type="button"
-                  onClick={() => setNamingSale(sale)}
-                  className="flex-1 sm:flex-none px-4 min-h-11 bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200 rounded-md border border-blue-200 dark:border-blue-700 hover:bg-blue-200 dark:hover:bg-blue-800 font-medium transition"
+                  onClick={() => setEditingSale(sale)}
+                  className={rowActionClass(rowActionAccents.blue)}
                 >
-                  {sale.customer_name ? "Edit customer" : "Add customer"}
+                  Edit details
                 </button>
               )}
 
@@ -120,7 +124,7 @@ const ListClosedSales = ({
               <button
                 type="button"
                 onClick={() => printInvoice(sale)}
-                className="flex-1 sm:flex-none px-4 min-h-11 bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-200 rounded-md border border-purple-200 dark:border-purple-700 hover:bg-purple-200 dark:hover:bg-purple-800 font-medium transition"
+                className={rowActionClass(rowActionAccents.purple)}
               >
                 Print
               </button>
@@ -137,10 +141,10 @@ const ListClosedSales = ({
         pageSize={SALES_PER_PAGE}
       />
 
-      <CustomerNameModal
-        sale={namingSale}
-        onClose={() => setNamingSale(null)}
-        onSave={(name) => updateClosedSale(namingSale.id, name)}
+      <EditClosedSaleModal
+        sale={editingSale}
+        onClose={() => setEditingSale(null)}
+        onSave={(patch) => updateClosedSale(editingSale.id, patch)}
       />
     </div>
   );

@@ -1,5 +1,10 @@
 import { sql } from "../config/db.js";
-import { normalizeCustomerName, toErrorResponse } from "../utils/saleItems.js";
+import {
+  normalizeCustomerName,
+  toErrorResponse,
+  badRequest,
+} from "../utils/saleItems.js";
+import { assertMethodActive } from "../utils/paymentMethods.js";
 
 /** Absent, blank or whitespace-only means "no bound". A bare "" fails the cast. */
 const bound = (value) => {
@@ -44,23 +49,64 @@ export const getClosedSales = async (req, res) => {
 };
 
 /**
- * PUT /api/closed-sales/:id — set or clear the customer name, nothing else.
+ * PUT /api/closed-sales/:id — the customer name and the payment method.
  *
- * Deliberately not a general edit. A closed sale has already moved stock, and
- * every path that changes sale lines does so inside the transaction that moves
- * that stock with them (see openSalesController.applyStockAndSale); there is no
- * such transaction here to ride on. Naming a sale is the one edit that changes
- * nothing financial, which is exactly why it can be allowed after payment —
- * anything else still has to go through Revert.
+ * Deliberately not a general edit. The rule is that an edit is safe after
+ * payment only if it moves no stock: every path that changes sale *lines* does
+ * so inside the transaction that moves stock with them (see
+ * openSalesController.applyStockAndSale), and there is no such transaction here
+ * to ride on. Who the sale was for and which tender settled it both pass that
+ * test; anything touching the lines still has to go through Revert.
+ *
+ * `paid_at` is pointedly not editable and pointedly not touched. Correcting the
+ * method used to mean Revert then re-Pay, which stamps a new paid_at and moves
+ * the sale in every report keyed off the payment date — which is the whole
+ * reason this endpoint grew the field.
  */
 export const updateClosedSale = async (req, res) => {
   try {
     const { id } = req.params;
-    const customerName = normalizeCustomerName(req.body?.customer_name);
+
+    const existing = await sql`SELECT * FROM closed_sales WHERE id = ${id}`;
+    if (existing.length === 0)
+      return res.status(404).json({ message: "Sale not found" });
+    const sale = existing[0];
+
+    // Presence, not COALESCE — the idiom updateOpenSale documents. An absent
+    // key means "leave it alone", a present one means "set it, even to empty",
+    // so a caller that only knows about names can't blank out a method and the
+    // method dialog can't wipe a name.
+    const customerName = Object.hasOwn(req.body ?? {}, "customer_name")
+      ? normalizeCustomerName(req.body.customer_name)
+      : sale.customer_name;
+
+    let paidUsing = sale.paid_using;
+    if (Object.hasOwn(req.body ?? {}, "paid_using")) {
+      paidUsing = typeof req.body.paid_using === "string"
+        ? req.body.paid_using.trim()
+        : req.body.paid_using;
+
+      // A closed sale always settled somehow; there is no "no method" state to
+      // clear it back to.
+      if (!paidUsing) throw badRequest("Payment method is required");
+
+      // Only validated when it actually changes. A sale paid with a method that
+      // has since been deactivated must still be nameable — and re-savable with
+      // the method it really used — without being forced onto a current one.
+      if (paidUsing !== sale.paid_using) {
+        assertMethodActive(
+          await sql`
+            SELECT code FROM payment_methods
+            WHERE code = ${paidUsing} AND is_active = TRUE
+          `
+        );
+      }
+    }
 
     const updated = await sql`
       UPDATE closed_sales
-      SET customer_name = ${customerName}
+      SET customer_name = ${customerName},
+          paid_using = ${paidUsing}
       WHERE id = ${id}
       RETURNING *
     `;

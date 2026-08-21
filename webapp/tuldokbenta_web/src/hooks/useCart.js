@@ -1,5 +1,6 @@
 // hooks/useCart.js
 import { useState } from "react";
+import { clampFreebieChoices } from "../utils/freebies";
 
 /**
  * Encapsulates all cart state and mutation logic shared between
@@ -118,6 +119,16 @@ export function useCart() {
     );
   };
 
+  /**
+   * Sets one freebie choice's quantity, then re-spends the classification's
+   * whole budget so the picks still fit the service quantity.
+   *
+   * Capping this one choice against the others was nearly right but produced a
+   * qty of 0 (or less) once the other picks had taken every slot — a freebie
+   * row that occupies a slot and delivers nothing, which the server then
+   * rejects the entire sale over. Re-spending in order instead lets an earlier
+   * pick grow into the slots a later one gives up, and never leaves a row at 0.
+   */
   const updateFreebieQuantity = (itemId, classification, cIdx, qty) => {
     setCart((prev) =>
       prev.map((cartItem) => {
@@ -126,19 +137,15 @@ export function useCart() {
             ...cartItem,
             freebies: cartItem.freebies.map((f) => {
               if (f.classification === classification) {
-                const totalOther = f.choices.reduce(
-                  (sum, c, i) => (i === cIdx ? sum : sum + c.qty),
-                  0
-                );
-                const maxAllowed = cartItem.quantity - totalOther;
-                return {
+                const requested = {
                   ...f,
                   choices: f.choices.map((c, i) =>
                     i === cIdx
-                      ? { ...c, qty: Math.min(qty, maxAllowed) }
+                      ? { ...c, qty: Math.max(1, Math.floor(Number(qty) || 1)) }
                       : c
                   ),
                 };
+                return clampFreebieChoices([requested], cartItem.quantity)[0];
               }
               return f;
             }),
@@ -172,11 +179,21 @@ export function useCart() {
   const updateQuantity = (id, type, change) => {
     setCart((prev) =>
       prev
-        .map((item) =>
-          item.id === id && item.type === type
-            ? { ...item, quantity: Math.max(item.quantity + change, 1) }
-            : item
-        )
+        .map((item) => {
+          if (item.id !== id || item.type !== type) return item;
+
+          const quantity = Math.max(item.quantity + change, 1);
+          // Lowering a service's quantity strands any freebie claimed against
+          // the slots that just went away, and each one is a real price-0 line
+          // the backend deducts stock for.
+          return Array.isArray(item.freebies)
+            ? {
+                ...item,
+                quantity,
+                freebies: clampFreebieChoices(item.freebies, quantity),
+              }
+            : { ...item, quantity };
+        })
         .filter((item) => item.quantity > 0)
     );
   };

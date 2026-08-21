@@ -193,14 +193,17 @@ export const useSaleMutations = () => {
     onSuccess: bothSaleTables,
   });
 
-  // Customer name only — the endpoint refuses to touch anything else, so no
-  // stock moved and the inventory cache stays good.
+  // Customer name and payment method — the endpoint refuses to touch the lines,
+  // so no stock moved and the inventory cache stays good. The ["closedSales"]
+  // prefix covers the day view, the report window and the full table at once,
+  // which is what a changed method needs: it moves a peso value between the
+  // report's payment buckets.
+  //
+  // `patch` is passed through rather than destructured so an absent key stays
+  // absent — the server reads that as "leave it alone".
   const updateClosedMutation = useMutation({
-    mutationFn: ({ id, customer_name }) =>
-      apiRequest(`/closed-sales/${id}`, {
-        method: "PUT",
-        body: { customer_name },
-      }),
+    mutationFn: ({ id, patch }) =>
+      apiRequest(`/closed-sales/${id}`, { method: "PUT", body: patch }),
     onSuccess: () => invalidate([queryKeys.closedSales]),
   });
 
@@ -218,12 +221,9 @@ export const useSaleMutations = () => {
     paySale: (id, paid_using) =>
       run(payMutation, { id, paid_using }, "Failed to pay sale"),
     revertSale: (id) => run(revertMutation, id, "Failed to revert sale"),
-    updateClosedSale: (id, customer_name) =>
-      run(
-        updateClosedMutation,
-        { id, customer_name },
-        "Failed to update closed sale"
-      ),
+    /** @param {{customer_name?: string, paid_using?: string}} patch */
+    updateClosedSale: (id, patch) =>
+      run(updateClosedMutation, { id, patch }, "Failed to update closed sale"),
     deleteClosedSale: (id) =>
       run(deleteClosedMutation, id, "Failed to delete closed sale"),
   };

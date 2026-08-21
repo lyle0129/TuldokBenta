@@ -8,6 +8,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import * as fc from 'fast-check'
+import { printInvoice } from '../utils/printInvoice.js'
 
 // ---------------------------------------------------------------------------
 // Helper: call printInvoice and capture the full HTML written to the new tab.
@@ -27,10 +28,10 @@ function captureInvoiceHtml(sale) {
     open: vi.fn(() => ({ document: fakeDoc })),
   })
 
-  // Re-import printInvoice freshly so it uses the stubbed window.
-  // We import it directly (not dynamically) because it's a pure function and
-  // doesn't close over window at module load time — it reads window at call time.
-  const { printInvoice } = require('../utils/printInvoice.js')
+  // Imported statically at the top of the file: printInvoice is a pure function
+  // that reads `window` at call time rather than closing over it at module load,
+  // so the stub above is what it sees. This used to be a require(), which broke
+  // as soon as printInvoice grew an ESM import of its own.
   printInvoice(sale)
 
   return captured
@@ -279,5 +280,69 @@ describe('Property 3 — paid date included iff paid_at present', () => {
       ),
       { numRuns: 100 }
     )
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Freebies appear exactly once.
+//
+// A claimed freebie is stored twice on purpose — nested under the service that
+// granted it, and again as a price-0 inventory line so stock is deducted. The
+// receipt renders the nested copy, so mapping the raw items array printed it a
+// second time as an ordinary "Ariel x1  0.00" row.
+// ---------------------------------------------------------------------------
+describe('printInvoice — freebie lines', () => {
+  const saleWithFreebie = {
+    invoice_number: 'INV-0042',
+    created_at: '2024-01-01T00:00:00Z',
+    items: [
+      {
+        type: 'service',
+        service_name: 'Full Service',
+        qty: 1,
+        price: 180,
+        freebies: [
+          { classification: 'Detergent', choices: [{ item: 'Ariel', qty: 1 }] },
+        ],
+      },
+      {
+        type: 'item',
+        item_name: 'Ariel',
+        qty: 1,
+        price: 0,
+        is_freebie: true,
+        for_service: 'Full Service',
+      },
+    ],
+  }
+
+  it('prints a claimed freebie once, as FREE under its service', () => {
+    const html = captureInvoiceHtml(saleWithFreebie)
+
+    expect((html.match(/Ariel/g) || []).length).toBe(1)
+    expect(html).toContain('+ Ariel x1')
+    expect(html).toContain('FREE')
+  })
+
+  it('does not print the freebie as an ordinary 0.00 line', () => {
+    const html = captureInvoiceHtml(saleWithFreebie)
+    expect(html).not.toContain('<span>Ariel x1</span>')
+  })
+
+  it('leaves the total alone — freebies are priced 0 either way', () => {
+    const html = captureInvoiceHtml(saleWithFreebie)
+    expect(html).toContain('180.00')
+  })
+
+  it('still prints a legacy price-0 line that has no service to nest under', () => {
+    const html = captureInvoiceHtml({
+      invoice_number: 'INV-0043',
+      created_at: '2024-01-01T00:00:00Z',
+      items: [
+        { type: 'service', service_name: 'Wash', qty: 1, price: 60 },
+        { type: 'item', item_name: 'Ariel', qty: 1, price: 0 },
+      ],
+    })
+    expect(html).toContain('Ariel x1')
   })
 })

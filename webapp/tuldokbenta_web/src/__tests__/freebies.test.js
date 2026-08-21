@@ -12,6 +12,7 @@ import {
   freebieGapsFromCart,
   freebieGapsFromSaleItems,
   describeFreebieGaps,
+  clampFreebieChoices,
 } from "../utils/freebies";
 
 const line = (overrides = {}) => ({
@@ -157,5 +158,88 @@ describe("describeFreebieGaps", () => {
     ).toEqual([
       "Full Service — 1 Plastic not claimed, a Plastic freebie has no item chosen",
     ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// clampFreebieChoices
+//
+// freebieGaps above only reports under-claiming. The opposite mistake — a
+// service dropped from qty 3 to qty 1 after three freebies were claimed —
+// leaves surplus picks behind, and every one of them is a real price-0 line the
+// backend deducts stock for.
+// ---------------------------------------------------------------------------
+describe("clampFreebieChoices", () => {
+  const detergent = (choices) => [{ classification: "Detergent", choices }];
+
+  it("trims a single over-claimed pick down to the slots available", () => {
+    expect(clampFreebieChoices(detergent([{ item: "Ariel", qty: 3 }]), 1)).toEqual(
+      detergent([{ item: "Ariel", qty: 1 }])
+    );
+  });
+
+  it("spends the budget in order and drops what does not fit", () => {
+    const claimed = detergent([
+      { item: "Ariel", qty: 2 },
+      { item: "Tide", qty: 2 },
+    ]);
+    // 3 slots: Ariel takes its 2, Tide is cut to the 1 that remains.
+    expect(clampFreebieChoices(claimed, 3)).toEqual(
+      detergent([
+        { item: "Ariel", qty: 2 },
+        { item: "Tide", qty: 1 },
+      ])
+    );
+  });
+
+  it("drops trailing picks entirely once the budget is spent", () => {
+    const claimed = detergent([
+      { item: "Ariel", qty: 2 },
+      { item: "Tide", qty: 1 },
+    ]);
+    expect(clampFreebieChoices(claimed, 2)).toEqual(
+      detergent([{ item: "Ariel", qty: 2 }])
+    );
+  });
+
+  it("never leaves a pick at zero — it removes it instead", () => {
+    const clamped = clampFreebieChoices(
+      detergent([
+        { item: "Ariel", qty: 1 },
+        { item: "Tide", qty: 1 },
+      ]),
+      1
+    );
+    expect(clamped[0].choices.every((c) => c.qty >= 1)).toBe(true);
+  });
+
+  it("clears every pick when there are no slots left", () => {
+    expect(clampFreebieChoices(detergent([{ item: "Ariel", qty: 1 }]), 0)).toEqual(
+      detergent([])
+    );
+  });
+
+  it("clamps each classification against its own budget", () => {
+    const mixed = [
+      { classification: "Detergent", choices: [{ item: "Ariel", qty: 2 }] },
+      { classification: "Plastic", choices: [{ item: "Small", qty: 1 }] },
+    ];
+    expect(clampFreebieChoices(mixed, 1)).toEqual([
+      { classification: "Detergent", choices: [{ item: "Ariel", qty: 1 }] },
+      { classification: "Plastic", choices: [{ item: "Small", qty: 1 }] },
+    ]);
+  });
+
+  it("returns the same objects when nothing needed trimming", () => {
+    // Identity matters: a fresh array on every keystroke would re-render the
+    // freebie editor for no reason.
+    const fits = detergent([{ item: "Ariel", qty: 1 }]);
+    const clamped = clampFreebieChoices(fits, 2);
+    expect(clamped[0]).toBe(fits[0]);
+  });
+
+  it("tolerates a service line whose freebies came back null", () => {
+    expect(clampFreebieChoices(null, 2)).toBe(null);
+    expect(clampFreebieChoices(undefined, 2)).toEqual([]);
   });
 });

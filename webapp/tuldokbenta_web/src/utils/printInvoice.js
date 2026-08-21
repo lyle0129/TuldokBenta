@@ -7,6 +7,8 @@
  * page lets it be edited by hand. A name containing "<" would otherwise open a
  * tag and eat the rest of the receipt.
  */
+import { displayLines } from "./buildSaleItems";
+
 const escapeHtml = (value) =>
   String(value ?? "")
     .replace(/&/g, "&amp;")
@@ -37,8 +39,14 @@ export function printInvoice(sale) {
     0
   );
 
-  // Generate HTML for items and freebies
-  const itemsHtml = sale.items
+  // Generate HTML for items and freebies.
+  //
+  // displayLines, not sale.items: a claimed freebie is stored twice on purpose
+  // — nested under the service that granted it, and again as a price-0
+  // inventory line so stock is deducted. Printing the raw array listed it once
+  // as "+ Tide 60g x1 FREE" under the service and a second time as an ordinary
+  // "Tide 60g x1  0.00" row.
+  const itemsHtml = displayLines(sale.items)
     .map((it) => {
       const itemName = it.type === "service" ? it.service_name : it.item_name;
       const qty = it.qty || 1;

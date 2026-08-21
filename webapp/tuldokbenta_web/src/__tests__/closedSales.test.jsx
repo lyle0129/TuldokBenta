@@ -11,11 +11,25 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import DayPicker from "../components/closed-sales/DayPicker";
 import ListClosedSales from "../components/closed-sales/ListClosedSales";
+import EditClosedSaleModal from "../components/sales-modals/EditClosedSaleModal";
 import { todayISODate, shiftDay } from "../utils/dateRange";
 import { renderWithQuery } from "./utils/renderWithQuery.jsx";
 
 const today = todayISODate();
 const yesterday = shiftDay(today, -1);
+
+const METHODS = [
+  { id: 1, code: "cash", label: "Cash", is_active: true, sort_order: 1 },
+  { id: 2, code: "gcash", label: "GCash", is_active: true, sort_order: 2 },
+  { id: 3, code: "old-card", label: "Old Card", is_active: false, sort_order: 3 },
+];
+
+/** Serves the method list to anything that reads it through the cache. */
+const mockMethodsFetch = () =>
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => ({ ok: true, status: 200, json: async () => METHODS }))
+  );
 
 // ---------------------------------------------------------------------------
 // DayPicker
@@ -133,6 +147,217 @@ describe("ListClosedSales", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /revert/i }));
     expect(revertSale).toHaveBeenCalledWith(7);
+  });
+
+  it("offers Edit details only when a save handler was supplied", () => {
+    const { rerender } = renderWithQuery(
+      <ListClosedSales closedSales={[makeSale(1, "INV-0001")]} revertSale={vi.fn()} />
+    );
+    expect(
+      screen.queryByRole("button", { name: /edit details/i })
+    ).not.toBeInTheDocument();
+
+    rerender(
+      <ListClosedSales
+        closedSales={[makeSale(1, "INV-0001")]}
+        revertSale={vi.fn()}
+        updateClosedSale={vi.fn()}
+      />
+    );
+    expect(
+      screen.getByRole("button", { name: /edit details/i })
+    ).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// EditClosedSaleModal
+//
+// The only two edits a paid sale allows, because they're the only two that move
+// no stock. Changing the method used to mean Revert then re-Pay, which stamps a
+// new paid_at and shifts the sale to today in every report keyed off it.
+// ---------------------------------------------------------------------------
+describe("EditClosedSaleModal", () => {
+  const paidSale = (overrides = {}) => ({
+    id: 5,
+    invoice_number: "INV-0005",
+    customer_name: "Maria Santos",
+    paid_using: "cash",
+    paid_at: "2026-08-17T02:00:00Z",
+    items: [{ type: "item", item_name: "Ariel", qty: 1, price: 50 }],
+    ...overrides,
+  });
+
+  const ok = () => vi.fn(async () => ({ ok: true, message: null }));
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("seeds both fields from the sale", async () => {
+    mockMethodsFetch();
+    renderWithQuery(
+      <EditClosedSaleModal sale={paidSale()} onClose={vi.fn()} onSave={ok()} />
+    );
+
+    expect(screen.getByLabelText(/customer name/i)).toHaveValue("Maria Santos");
+    await waitFor(() =>
+      expect(screen.getByLabelText(/payment method/i)).toHaveValue("cash")
+    );
+  });
+
+  it("sends only the method when only the method changed", async () => {
+    mockMethodsFetch();
+    const onSave = ok();
+    renderWithQuery(
+      <EditClosedSaleModal sale={paidSale()} onClose={vi.fn()} onSave={onSave} />
+    );
+
+    // Wait for the real options, not just the value — until the fetch lands the
+    // select holds a single placeholder option and a change to "gcash" would
+    // silently land on nothing.
+    await waitFor(() => expect(screen.getByRole("option", { name: "GCash" })));
+    fireEvent.change(screen.getByLabelText(/payment method/i), {
+      target: { value: "gcash" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
+
+    // An absent key reads as "leave it alone" server-side, so renaming and
+    // re-tendering stay independent.
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith({ paid_using: "gcash" }));
+  });
+
+  it("sends only the name when only the name changed", async () => {
+    mockMethodsFetch();
+    const onSave = ok();
+    renderWithQuery(
+      <EditClosedSaleModal sale={paidSale()} onClose={vi.fn()} onSave={onSave} />
+    );
+
+    await waitFor(() =>
+      expect(screen.getByLabelText(/payment method/i)).toHaveValue("cash")
+    );
+    fireEvent.change(screen.getByLabelText(/customer name/i), {
+      target: { value: "Juan" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
+
+    await waitFor(() =>
+      expect(onSave).toHaveBeenCalledWith({ customer_name: "Juan" })
+    );
+  });
+
+  it("saves nothing when neither field was touched", async () => {
+    mockMethodsFetch();
+    const onSave = ok();
+    const onClose = vi.fn();
+    renderWithQuery(
+      <EditClosedSaleModal sale={paidSale()} onClose={onClose} onSave={onSave} />
+    );
+
+    await waitFor(() =>
+      expect(screen.getByLabelText(/payment method/i)).toHaveValue("cash")
+    );
+    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
+
+    expect(onSave).not.toHaveBeenCalled();
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  // Without the retired option the select would fall back to whatever sits
+  // first, so opening the dialog to fix a typo would rewrite the tender.
+  it("keeps a method that is no longer offered selectable", async () => {
+    mockMethodsFetch();
+    const onSave = ok();
+    renderWithQuery(
+      <EditClosedSaleModal
+        sale={paidSale({ paid_using: "old-card" })}
+        onClose={vi.fn()}
+        onSave={onSave}
+      />
+    );
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole("option", { name: /old card \(no longer offered\)/i })
+      ).toBeInTheDocument()
+    );
+    expect(screen.getByLabelText(/payment method/i)).toHaveValue("old-card");
+
+    // Renaming such a sale must not drag it onto a current method.
+    fireEvent.change(screen.getByLabelText(/customer name/i), {
+      target: { value: "Juan" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
+
+    await waitFor(() =>
+      expect(onSave).toHaveBeenCalledWith({ customer_name: "Juan" })
+    );
+  });
+
+  it("clears the name when the box is emptied", async () => {
+    mockMethodsFetch();
+    const onSave = ok();
+    renderWithQuery(
+      <EditClosedSaleModal sale={paidSale()} onClose={vi.fn()} onSave={onSave} />
+    );
+
+    fireEvent.change(screen.getByLabelText(/customer name/i), {
+      target: { value: "" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith({ customer_name: "" }));
+  });
+
+  it("reports a rejected save instead of closing", async () => {
+    mockMethodsFetch();
+    const onClose = vi.fn();
+    const onSave = vi.fn(async () => ({
+      ok: false,
+      message: "That payment method is no longer available",
+    }));
+    renderWithQuery(
+      <EditClosedSaleModal sale={paidSale()} onClose={onClose} onSave={onSave} />
+    );
+
+    fireEvent.change(screen.getByLabelText(/customer name/i), {
+      target: { value: "Juan" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
+
+    await waitFor(() =>
+      expect(screen.getByRole("alert")).toHaveTextContent(/no longer available/i)
+    );
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("reseeds when a different sale is opened", async () => {
+    mockMethodsFetch();
+    const { rerender } = renderWithQuery(
+      <EditClosedSaleModal sale={paidSale()} onClose={vi.fn()} onSave={ok()} />
+    );
+
+    fireEvent.change(screen.getByLabelText(/customer name/i), {
+      target: { value: "Edited" },
+    });
+
+    rerender(
+      <EditClosedSaleModal
+        sale={paidSale({ id: 6, invoice_number: "INV-0006", customer_name: null })}
+        onClose={vi.fn()}
+        onSave={ok()}
+      />
+    );
+
+    expect(screen.getByLabelText(/customer name/i)).toHaveValue("");
+  });
+
+  it("returns null without a sale", () => {
+    const { container } = renderWithQuery(
+      <EditClosedSaleModal sale={null} onClose={vi.fn()} onSave={ok()} />
+    );
+    expect(container.firstChild).toBeNull();
   });
 });
 

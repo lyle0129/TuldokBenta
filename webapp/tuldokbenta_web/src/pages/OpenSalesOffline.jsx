@@ -5,18 +5,27 @@ import { useOfflineCatalog } from "../hooks/useOfflineCatalog";
 import CatalogGrid from "../components/open-sales/CatalogGrid";
 import CartBar from "../components/open-sales/CartBar";
 import CartModal from "../components/open-sales/CartModal";
-import Modal from "../components/shared/Modal";
+import EditSaleModal from "../components/sales-modals/EditSaleModal";
 import ConfirmDialog from "../components/shared/ConfirmDialog";
 import SearchInput from "../components/shared/SearchInput";
 import { printInvoice } from "../utils/printInvoice";
-import { buildSaleItems } from "../utils/buildSaleItems";
+import { buildSaleItems, isFreeLine } from "../utils/buildSaleItems";
 import { freebieGapsFromCart, describeFreebieGaps } from "../utils/freebies";
 import { filterSales } from "../utils/filterSales";
 import { formatCurrency, formatDateTime, saleTotal } from "../utils/format";
 import { readJSON, writeJSON, OFFLINE_SALES_KEY } from "../utils/storage";
+import {
+  saleCardClass,
+  saleActionsClass,
+  rowActionClass,
+  rowActionAccents,
+} from "../components/shared/fieldStyles";
 
 const OpenSalesOffline = () => {
-  const [viewingSale, setViewingSale] = useState(null);
+  // The queue element itself, not a { ...s, index } snapshot. Positions shift
+  // whenever a sale is synced or deleted, and the status banner doesn't block
+  // the list, so a captured index could land the save on a different sale.
+  const [editingSale, setEditingSale] = useState(null);
   const [deletingIndex, setDeletingIndex] = useState(null);
   const [showCart, setShowCart] = useState(false);
   const [freebieGaps, setFreebieGaps] = useState(null);
@@ -153,9 +162,33 @@ const OpenSalesOffline = () => {
     }
   };
 
-  const updateOfflineSale = (index, patch) => {
+  /**
+   * Commits an edit back onto the queue.
+   *
+   * The position is resolved here, against the queue as it stands now, rather
+   * than being captured when the modal opened — the same identity lookup the
+   * list itself uses. A sale synced or deleted while the editor was open is no
+   * longer there to write to, and saying so beats silently patching whichever
+   * sale slid into its place.
+   */
+  const handleSaveOffline = (updated) => {
+    const index = sales.indexOf(editingSale);
+    if (index === -1) {
+      setStatus({
+        tone: "error",
+        text: "That queued sale is no longer in the queue — your changes were not saved.",
+      });
+      setEditingSale(null);
+      return;
+    }
+
     const updatedSales = [...sales];
-    updatedSales[index] = { ...updatedSales[index], ...patch };
+    updatedSales[index] = {
+      ...updatedSales[index],
+      invoice_number: updated.invoice_number.trim(),
+      items: updated.items,
+      customer_name: updated.customer_name?.trim() || null,
+    };
 
     // This used to write to "offlineSales" while every other access used
     // "offline_sales", so the edit was reported as saved and then vanished on
@@ -164,6 +197,7 @@ const OpenSalesOffline = () => {
       setStatus({ tone: "error", text: "Failed to update the queued sale." });
       return;
     }
+    setEditingSale(null);
     setStatus({ tone: "ok", text: "Queued sale updated." });
   };
 
@@ -288,10 +322,7 @@ const OpenSalesOffline = () => {
               const i = sales.indexOf(s);
 
               return (
-                <div
-                  key={`${s.invoice_number}-${i}`}
-                  className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-sm p-4 sm:p-5 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 hover:shadow-md transition-shadow duration-200"
-                >
+                <div key={`${s.invoice_number}-${i}`} className={saleCardClass}>
                   <div className="flex-1 min-w-0">
                     <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-100">
                       Invoice #{s.invoice_number}
@@ -317,43 +348,53 @@ const OpenSalesOffline = () => {
                       </span>
                     </p>
 
+                    {/* Marked, not folded away — a price-0 freebie is still
+                        stock leaving the shelf. Same as the other two lists. */}
                     <ul className="mt-2 text-sm text-gray-600 dark:text-gray-300 list-disc pl-5 space-y-0.5">
                       {(s.items || []).map((it, idx) => (
-                        <li key={idx}>
+                        <li
+                          key={idx}
+                          className={
+                            isFreeLine(it)
+                              ? "text-green-600 dark:text-green-400"
+                              : ""
+                          }
+                        >
                           {it.type === "service"
                             ? `${it.service_name} ×${it.qty || 1}`
                             : `${it.item_name} ×${it.qty || 1}`}
+                          {isFreeLine(it) && " (free)"}
                         </li>
                       ))}
                     </ul>
                   </div>
 
-                  <div className="grid grid-cols-2 sm:flex sm:flex-col gap-2 sm:flex-shrink-0">
+                  <div className={saleActionsClass}>
                     <button
                       type="button"
                       onClick={() => handleCreateOpenSale(s, i)}
-                      className="px-4 min-h-11 bg-yellow-500 text-white rounded-md text-sm font-medium hover:bg-yellow-600 transition-colors shadow-sm"
+                      className={rowActionClass(rowActionAccents.yellow)}
                     >
                       Create Open Sale
                     </button>
                     <button
                       type="button"
-                      onClick={() => setViewingSale({ ...s, index: i })}
-                      className="px-4 min-h-11 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 transition-colors shadow-sm"
+                      onClick={() => setEditingSale(s)}
+                      className={rowActionClass(rowActionAccents.blue)}
                     >
-                      View
+                      Edit
                     </button>
                     <button
                       type="button"
                       onClick={() => printInvoice(s)}
-                      className="px-4 min-h-11 bg-green-600 text-white rounded-md text-sm font-medium hover:bg-green-700 transition-colors shadow-sm"
+                      className={rowActionClass(rowActionAccents.purple)}
                     >
                       Print
                     </button>
                     <button
                       type="button"
                       onClick={() => setDeletingIndex(i)}
-                      className="px-4 min-h-11 bg-red-500 text-white rounded-md text-sm font-medium hover:bg-red-600 transition-colors shadow-sm"
+                      className={rowActionClass(rowActionAccents.red)}
                     >
                       Delete
                     </button>
@@ -399,122 +440,20 @@ const OpenSalesOffline = () => {
         }}
       />
 
-      {/* VIEW — the invoice number is editable here so a queued sale rejected
-          for a duplicate number can be fixed and retried, and the customer
-          alongside it because a name is often given after the fact. */}
-      <Modal
-        open={viewingSale !== null}
-        onClose={() => setViewingSale(null)}
-        title="Offline Invoice"
-        accent="blue"
-        size="lg"
-        footer={
-          <div className="flex gap-3">
-            <button
-              type="button"
-              onClick={() => setViewingSale(null)}
-              className="flex-1 px-4 min-h-11 rounded-md bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 hover:bg-gray-300 dark:hover:bg-gray-600 font-medium transition-colors"
-            >
-              Close
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                updateOfflineSale(viewingSale.index, {
-                  invoice_number: viewingSale.invoice_number,
-                  customer_name: viewingSale.customer_name?.trim() || null,
-                });
-                setViewingSale(null);
-              }}
-              className="flex-1 px-4 min-h-11 rounded-md bg-blue-600 hover:bg-blue-700 text-white font-medium transition-colors"
-            >
-              Save
-            </button>
-          </div>
-        }
-      >
-        {viewingSale && (
-          <>
-            <label className="block text-sm text-gray-600 dark:text-gray-400">
-              Invoice number
-              <input
-                type="text"
-                value={viewingSale.invoice_number}
-                onChange={(e) =>
-                  setViewingSale((prev) => ({
-                    ...prev,
-                    invoice_number: e.target.value,
-                  }))
-                }
-                className="mt-1 block w-full sm:w-48 min-h-11 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded-md px-2 text-gray-800 dark:text-gray-100 font-mono focus:ring-2 focus:ring-blue-500 outline-none"
-              />
-            </label>
-
-            <label className="block text-sm text-gray-600 dark:text-gray-400 mt-3">
-              Customer (optional)
-              <input
-                type="text"
-                value={viewingSale.customer_name ?? ""}
-                maxLength={255}
-                placeholder="Who is this sale for?"
-                onChange={(e) =>
-                  setViewingSale((prev) => ({
-                    ...prev,
-                    customer_name: e.target.value,
-                  }))
-                }
-                className="mt-1 block w-full min-h-11 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded-md px-2 text-gray-800 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-blue-500 outline-none"
-              />
-            </label>
-
-            <p className="text-sm text-gray-500 dark:text-gray-400 mt-3">
-              Date: <span className="font-medium">{formatDateTime(viewingSale.date)}</span>
-            </p>
-
-            <div className="mt-4 border-t border-gray-200 dark:border-gray-700 pt-4 space-y-3">
-              {(viewingSale.items || []).map((it, idx) => {
-                const name = it.type === "service" ? it.service_name : it.item_name;
-                const qty = it.qty || 1;
-                return (
-                  <div key={idx} className="flex justify-between items-start gap-3">
-                    <div className="min-w-0">
-                      <div className="font-medium text-gray-800 dark:text-gray-100">
-                        {name} <span className="text-xs text-gray-500">×{qty}</span>
-                      </div>
-                      {it.freebies?.length > 0 && (
-                        <div className="text-xs text-gray-600 dark:text-gray-300 pl-2 mt-1">
-                          {it.freebies.map((f, fi) =>
-                            f.choices?.map((c, ci) => (
-                              <div key={`${fi}-${ci}`} className="flex gap-2">
-                                <span>
-                                  + {c.item} ×{c.qty}
-                                </span>
-                                <span className="text-green-600 dark:text-green-400">
-                                  FREE
-                                </span>
-                              </div>
-                            ))
-                          )}
-                        </div>
-                      )}
-                    </div>
-                    <div className="font-semibold text-gray-800 dark:text-gray-100 flex-shrink-0">
-                      {formatCurrency(Number(it.price || 0) * qty)}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-
-            <div className="mt-4 border-t border-gray-200 dark:border-gray-700 pt-4 flex justify-between items-center">
-              <span className="font-medium text-gray-700 dark:text-gray-200">Total</span>
-              <span className="font-bold text-lg text-blue-600 dark:text-blue-400">
-                {formatCurrency(saleTotal(viewingSale))}
-              </span>
-            </div>
-          </>
-        )}
-      </Modal>
+      {/* The same editor the online list uses, so a queued sale's lines,
+          quantities and freebie picks are as editable here as they are there —
+          they used to be frozen, and the only remedy was Delete and re-cart.
+          `allowInvoiceEdit` is the one difference: the server hands out online
+          invoice numbers, but a queued sale carries its own, and a duplicate is
+          exactly what the sync rejects. */}
+      <EditSaleModal
+        allowInvoiceEdit
+        sale={editingSale}
+        onClose={() => setEditingSale(null)}
+        onSave={handleSaveOffline}
+        inventory={inventory}
+        services={services}
+      />
 
       <ConfirmDialog
         open={deletingIndex !== null}
