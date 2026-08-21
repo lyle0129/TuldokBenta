@@ -72,6 +72,24 @@ export const shiftDay = (isoDate, days) => {
   return toISODate(d);
 };
 
+/**
+ * Slides an inclusive day range by whole days, keeping its width.
+ *
+ * The report dates a range with a pair, so "the previous day" has to move both
+ * ends: shifting only `from` would widen the window instead of stepping it.
+ * A one-day range therefore steps day by day, exactly like the closed-sales
+ * picker, while a week-long one slides a week-long window.
+ *
+ * @param {string} fromISO "YYYY-MM-DD", inclusive
+ * @param {string} toISO   "YYYY-MM-DD", inclusive
+ * @param {number} days    negative to step back
+ * @returns {{ from: string, to: string }}
+ */
+export const shiftRange = (fromISO, toISO, days) => ({
+  from: shiftDay(fromISO, days),
+  to: shiftDay(toISO, days),
+});
+
 /** The ranges the report toolbar offers, in the order it renders them. */
 export const RANGE_PRESETS = [
   { id: "today", label: "Today" },
@@ -106,4 +124,21 @@ export const presetRange = (preset) => {
     default:
       return { from: to, to };
   }
+};
+
+/**
+ * The preset whose range is exactly this day pair, or "custom".
+ *
+ * Stepping the window back and then forward again lands back on a preset's
+ * range; without this the tab strip would keep reading "Custom" for a range
+ * one of its own tabs owns.
+ *
+ * @returns {string} a RANGE_PRESETS id, or "custom"
+ */
+export const matchPreset = (fromISO, toISO) => {
+  const hit = RANGE_PRESETS.find(({ id }) => {
+    const range = presetRange(id);
+    return range.from === fromISO && range.to === toISO;
+  });
+  return hit ? hit.id : "custom";
 };

@@ -284,6 +284,52 @@ describe("Reporting page", () => {
     );
   });
 
+  /**
+   * Reading yesterday's report used to mean typing both date fields, because
+   * the range is a pair and nothing moved it as a unit.
+   */
+  it("steps the whole range back a day from the arrow", async () => {
+    renderPage();
+    await waitFor(() => expect(windowRequests().length).toBeGreaterThan(0));
+    const before = windowRequests().length;
+
+    fireEvent.click(screen.getByRole("button", { name: /previous day/i }));
+
+    await waitFor(() => expect(windowRequests().length).toBeGreaterThan(before));
+    const url = windowRequests().at(-1);
+    const yesterday = shiftDay(today, -1);
+    expect(new Date(`${paramOf(url, "paidlow")}Z`).getDate()).toBe(
+      new Date(`${yesterday}T00:00:00`).getDate()
+    );
+    // Both ends moved: a window that only shifted `from` would still end today.
+    expect(new Date(`${paramOf(url, "createdhigh")}Z`).getDate()).toBe(
+      new Date(`${yesterday}T00:00:00`).getDate()
+    );
+  });
+
+  it("cannot step past today", async () => {
+    renderPage();
+    await waitFor(() => expect(windowRequests().length).toBeGreaterThan(0));
+
+    const forward = screen.getByRole("button", { name: /next day/i });
+    expect(forward).toBeDisabled();
+
+    fireEvent.click(screen.getByRole("button", { name: /previous day/i }));
+    await waitFor(() => expect(forward).toBeEnabled());
+  });
+
+  it("re-lights the Today tab when the range is stepped back onto it", async () => {
+    renderPage();
+    await waitFor(() => expect(windowRequests().length).toBeGreaterThan(0));
+
+    const todayTab = screen.getByRole("tab", { name: /^today$/i });
+    fireEvent.click(screen.getByRole("button", { name: /previous day/i }));
+    await waitFor(() => expect(todayTab).toHaveAttribute("aria-selected", "false"));
+
+    fireEvent.click(screen.getByRole("button", { name: /next day/i }));
+    await waitFor(() => expect(todayTab).toHaveAttribute("aria-selected", "true"));
+  });
+
   it("surfaces a failed load instead of rendering a dashboard of zeroes", async () => {
     vi.stubGlobal(
       "fetch",

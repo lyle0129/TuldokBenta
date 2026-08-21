@@ -13,6 +13,8 @@ import {
   toISODate,
   dayRange,
   shiftDay,
+  shiftRange,
+  matchPreset,
   rangeBounds,
   localRangeBounds,
   presetRange,
@@ -208,5 +210,81 @@ describe("shiftDay", () => {
         }
       )
     );
+  });
+});
+
+describe("shiftRange", () => {
+  it("steps a one-day range like a day picker", () => {
+    expect(shiftRange("2026-08-17", "2026-08-17", -1)).toEqual({
+      from: "2026-08-16",
+      to: "2026-08-16",
+    });
+  });
+
+  /**
+   * The report dates a range with a pair, so moving only `from` would widen
+   * the window instead of stepping it — the whole point of shifting both ends.
+   */
+  it("keeps a multi-day window the same width", () => {
+    fc.assert(
+      fc.property(
+        fc.date({ min: new Date(2000, 0, 1), max: new Date(2050, 0, 1) }),
+        fc.integer({ min: 0, max: 60 }),
+        fc.integer({ min: -60, max: 60 }),
+        (date, span, step) => {
+          const from = toISODate(date);
+          const to = shiftDay(from, span);
+          const next = shiftRange(from, to, step);
+
+          const days = (a, b) =>
+            Math.round(
+              (new Date(`${b}T00:00:00`) - new Date(`${a}T00:00:00`)) / 86_400_000
+            );
+          expect(days(next.from, next.to)).toBe(span);
+        }
+      )
+    );
+  });
+
+  it("is reversible", () => {
+    const once = shiftRange("2026-08-13", "2026-08-19", -1);
+    expect(shiftRange(once.from, once.to, 1)).toEqual({
+      from: "2026-08-13",
+      to: "2026-08-19",
+    });
+  });
+});
+
+describe("matchPreset", () => {
+  afterEach(() => vi.useRealTimers());
+
+  it("names the preset a range belongs to", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 7, 19, 12));
+
+    expect(matchPreset("2026-08-19", "2026-08-19")).toBe("today");
+    expect(matchPreset("2026-08-13", "2026-08-19")).toBe("7d");
+    expect(matchPreset("2026-08-01", "2026-08-19")).toBe("month");
+  });
+
+  it("calls a stepped-back range custom", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 7, 19, 12));
+
+    expect(matchPreset("2026-08-18", "2026-08-18")).toBe("custom");
+    expect(matchPreset("2026-08-12", "2026-08-18")).toBe("custom");
+  });
+
+  /** Stepping back and forward again must land on a preset, not on "custom". */
+  it("round-trips with shiftRange", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 7, 19, 12));
+
+    const { from, to } = presetRange("7d");
+    const back = shiftRange(from, to, -1);
+    const forward = shiftRange(back.from, back.to, 1);
+
+    expect(matchPreset(back.from, back.to)).toBe("custom");
+    expect(matchPreset(forward.from, forward.to)).toBe("7d");
   });
 });

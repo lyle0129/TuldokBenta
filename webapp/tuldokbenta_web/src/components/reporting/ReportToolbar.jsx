@@ -2,11 +2,14 @@
 import { useMemo } from "react";
 import { X } from "lucide-react";
 import SearchInput from "../shared/SearchInput";
+import RangeStepper from "./RangeStepper";
 import { usePaymentMethods } from "../../hooks/usePaymentMethods";
 import { buildMethodLookup, resolveMethod } from "../../utils/paymentMethods";
 import {
   RANGE_PRESETS,
+  matchPreset,
   presetRange,
+  shiftRange,
   todayISODate,
 } from "../../utils/dateRange";
 import { inputClass, labelClass } from "../shared/fieldStyles";
@@ -66,6 +69,13 @@ const ReportToolbar = ({ value, onChange, onReset, sales = [], summary }) => {
   // Typing a date by hand is what "custom" means; there is no separate button.
   const setDate = (key, date) => set({ preset: "custom", [key]: date });
 
+  // Stepping keeps the tab strip honest: walk a day back off "Today" and the
+  // range is custom, walk forward onto it again and the Today tab lights up.
+  const stepRange = (days) => {
+    const next = shiftRange(value.from, value.to, days);
+    set({ ...next, preset: matchPreset(next.from, next.to) });
+  };
+
   const tabClass = (active) =>
     `px-4 min-h-11 rounded-md border text-sm font-medium whitespace-nowrap flex-shrink-0 transition-colors ${
       active
@@ -113,6 +123,8 @@ const ReportToolbar = ({ value, onChange, onReset, sales = [], summary }) => {
           Custom
         </span>
       </div>
+
+      <RangeStepper from={value.from} to={value.to} onStep={stepRange} />
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         <div>

@@ -30,6 +30,32 @@ export const formatDayLabel = (isoDate) => {
       });
 };
 
+/**
+ * "Mon, Aug 17, 2026" for one day, "Aug 13 – Aug 19, 2026" for a span.
+ *
+ * A range printed as two full day labels ("Thu, Aug 13, 2026 – Wed, Aug 19,
+ * 2026") wraps to three lines on a phone, so the weekday and the repeated year
+ * are dropped once there is more than one day to name.
+ */
+export const formatRangeLabel = (fromISO, toISO) => {
+  if (!fromISO || !toISO) return "—";
+  if (fromISO === toISO) return formatDayLabel(fromISO);
+
+  const short = (isoDate, withYear) => {
+    const d = new Date(`${isoDate}T00:00:00`);
+    return Number.isNaN(d.getTime())
+      ? "—"
+      : d.toLocaleDateString(undefined, {
+          month: "short",
+          day: "numeric",
+          ...(withYear ? { year: "numeric" } : {}),
+        });
+  };
+
+  const sameYear = fromISO.slice(0, 4) === toISO.slice(0, 4);
+  return `${short(fromISO, !sameYear)} – ${short(toISO, true)}`;
+};
+
 /** Sum of a sale's line totals. Freebie lines are price 0, so they contribute nothing. */
 export const saleTotal = (sale) =>
   (sale?.items || []).reduce(
