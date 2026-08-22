@@ -1,27 +1,27 @@
-import { useState, useEffect } from "react";
+// components/shared/Navbar.jsx
+import { useState } from "react";
 import { Link, NavLink, useNavigate } from "react-router-dom";
+import { LogIn, LogOut, Menu, Moon, Sun } from "lucide-react";
 import { clearQueryCache } from "../../queryClient";
+import { signOut } from "../../utils/auth";
+import { useAuth } from "../../hooks/useAuth";
+import { useDarkMode } from "../../hooks/useDarkMode";
+import NavDrawer from "./NavDrawer";
+import NavMenu from "./NavMenu";
+import { navRowClass, SIGN_IN_ROUTE, visibleGroups } from "./navItems";
+
+const DRAWER_ID = "primary-navigation";
 
 const Navbar = () => {
   const navigate = useNavigate();
-  const isAuthenticated = localStorage.getItem("authenticated") === "true";
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [darkMode, setDarkMode] = useState(
-    localStorage.getItem("theme") === "dark"
-  );
+  const authenticated = useAuth();
+  const [darkMode, toggleDarkMode] = useDarkMode();
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
-  useEffect(() => {
-    if (darkMode) {
-      document.documentElement.classList.add("dark");
-      localStorage.setItem("theme", "dark");
-    } else {
-      document.documentElement.classList.remove("dark");
-      localStorage.setItem("theme", "light");
-    }
-  }, [darkMode]);
+  const groups = visibleGroups(authenticated);
 
   const handleLogout = () => {
-    localStorage.removeItem("authenticated");
+    signOut();
     // The reload below used to be enough to wipe every list from memory. Now
     // that the query cache is persisted, sales data would outlive the session
     // in localStorage unless it is dropped explicitly.
@@ -30,175 +30,132 @@ const Navbar = () => {
     window.location.reload();
   };
 
-  const linkClasses = ({ isActive }) =>
-    `block px-4 py-2 rounded-md font-medium transition-colors duration-200 ${
-      isActive
-        ? "bg-blue-600 text-white"
-        : "text-gray-700 dark:text-gray-200 hover:bg-blue-50 dark:hover:bg-gray-700 hover:text-blue-600"
-    }`;
+  const ThemeIcon = darkMode ? Sun : Moon;
+
+  // Rendered in the bar and again in the drawer footer, where it also carries a
+  // label — there is room for one, and an unlabelled icon in a list of labelled
+  // rows reads as an oversight.
+  const sessionAction = (extraClasses = "") =>
+    authenticated ? (
+      <button
+        type="button"
+        onClick={handleLogout}
+        className={`flex items-center justify-center gap-2 px-4 min-h-11 rounded-md bg-red-500 hover:bg-red-600 active:scale-95 text-white font-medium transition ${extraClasses}`}
+      >
+        <LogOut size={18} aria-hidden="true" />
+        Logout
+      </button>
+    ) : (
+      <Link
+        to={SIGN_IN_ROUTE}
+        onClick={() => setDrawerOpen(false)}
+        className={`flex items-center justify-center gap-2 px-4 min-h-11 rounded-md border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 font-medium transition ${extraClasses}`}
+      >
+        <LogIn size={18} aria-hidden="true" />
+        Sign In
+      </Link>
+    );
 
   return (
-    <nav className="bg-white dark:bg-gray-900 shadow-md sticky top-0 z-50">
-      <div className="max-w-6xl mx-auto px-6 py-3 flex justify-between items-center">
-        {/* Logo */}
-        <Link
-          to="/"
-          className="text-lg sm:text-xl font-bold text-blue-600 dark:text-blue-400 tracking-wide"
-        >
-          MultiPOS 
-        </Link>
+    <>
+      <nav className="sticky top-0 z-50 bg-white/95 dark:bg-gray-900/95 backdrop-blur border-b border-gray-200 dark:border-gray-700">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 h-14 md:h-16 flex items-center justify-between gap-3">
+          <Link to="/" className="flex items-center gap-2 flex-shrink-0">
+            <img
+              src="/Spincredible.png"
+              alt=""
+              className="h-8 w-8 rounded-md object-contain"
+            />
+            {/* The wordmark drops on the narrowest phones so the mark and the
+                hamburger never have to share a cramped row. */}
+            <span className="hidden sm:block font-bold text-lg text-blue-600 dark:text-blue-400 tracking-tight">
+              Spincredible
+            </span>
+          </Link>
 
-        {/* Desktop Navigation */}
-        <div className="hidden md:flex gap-2 items-center">
-          <NavLink to="/open-sales" className={linkClasses}>
-            Open Sales
-          </NavLink>
-
-          {/* ✅ New Offline Sales link */}
-          <NavLink to="/open-sales-offline" className={linkClasses}>
-            Offline Sales
-          </NavLink>
-
-          <NavLink to="/closed-sales" className={linkClasses}>
-            Closed Sales
-          </NavLink>
-          <NavLink to="/inventory" className={linkClasses}>
-            Inventory
-          </NavLink>
-          <NavLink to="/services" className={linkClasses}>
-            Services
-          </NavLink>
-          <NavLink to="/payment-methods" className={linkClasses}>
-            Payment Methods
-          </NavLink>
-          <NavLink to="/reporting" className={linkClasses}>
-            Reporting
-          </NavLink>
-
-          {isAuthenticated && (
-            <button
-              onClick={handleLogout}
-              className="ml-3 px-4 py-2 bg-red-500 text-white rounded-md hover:bg-red-600 transition-colors duration-200"
-            >
-              Logout
-            </button>
-          )}
-
-          {/* Dark Mode Toggle */}
-          <button
-            onClick={() => setDarkMode(!darkMode)}
-            className="ml-2 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors duration-200"
-          >
-            {darkMode ? "Light Mode" : "Dark Mode"}
-          </button>
-        </div>
-
-        {/* Mobile Menu Button */}
-        <button
-          className="md:hidden p-2 text-gray-700 dark:text-gray-200 hover:text-blue-600 focus:outline-none"
-          onClick={() => setMenuOpen(!menuOpen)}
-          aria-label="Toggle menu"
-        >
-          <div className="space-y-1">
-            <span
-              className={`block h-0.5 w-6 bg-current transform transition duration-300 ${
-                menuOpen ? "rotate-45 translate-y-1.5" : ""
-              }`}
-            ></span>
-            <span
-              className={`block h-0.5 w-6 bg-current transition duration-300 ${
-                menuOpen ? "opacity-0" : ""
-              }`}
-            ></span>
-            <span
-              className={`block h-0.5 w-6 bg-current transform transition duration-300 ${
-                menuOpen ? "-rotate-45 -translate-y-1.5" : ""
-              }`}
-            ></span>
-          </div>
-        </button>
-      </div>
-
-      {/* Mobile Dropdown Menu */}
-      {menuOpen && (
-        <div className="md:hidden border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
-          <div className="flex flex-col items-start p-4 space-y-2">
-            <NavLink
-              to="/open-sales"
-              className={linkClasses}
-              onClick={() => setMenuOpen(false)}
-            >
-              Open Sales
-            </NavLink>
-
-            {/* ✅ Mobile Offline Sales link */}
-            <NavLink
-              to="/open-sales-offline"
-              className={linkClasses}
-              onClick={() => setMenuOpen(false)}
-            >
-              Offline Sales
-            </NavLink>
-
-            <NavLink
-              to="/closed-sales"
-              className={linkClasses}
-              onClick={() => setMenuOpen(false)}
-            >
-              Closed Sales
-            </NavLink>
-            <NavLink
-              to="/inventory"
-              className={linkClasses}
-              onClick={() => setMenuOpen(false)}
-            >
-              Inventory
-            </NavLink>
-            <NavLink
-              to="/services"
-              className={linkClasses}
-              onClick={() => setMenuOpen(false)}
-            >
-              Services
-            </NavLink>
-            <NavLink
-              to="/payment-methods"
-              className={linkClasses}
-              onClick={() => setMenuOpen(false)}
-            >
-              Payment Methods
-            </NavLink>
-            <NavLink
-              to="/reporting"
-              className={linkClasses}
-              onClick={() => setMenuOpen(false)}
-            >
-              Reporting
-            </NavLink>
-
-            {isAuthenticated && (
-              <button
-                onClick={() => {
-                  handleLogout();
-                  setMenuOpen(false);
-                }}
-                className="w-full text-left px-4 py-2 bg-red-500 text-white rounded-md hover:bg-red-600 transition-colors duration-200"
-              >
-                Logout
-              </button>
+          <div className="hidden md:flex items-center gap-1">
+            {groups.map((group) =>
+              // A group of one is a destination, not a menu — making Reporting
+              // a dropdown would cost a click to reach a single page.
+              group.items.length === 1 ? (
+                <NavLink
+                  key={group.id}
+                  to={group.items[0].to}
+                  className={({ isActive }) =>
+                    `px-3 min-h-11 rounded-md text-sm font-medium transition-colors flex items-center ${
+                      isActive
+                        ? "bg-blue-50 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
+                        : "text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+                    }`
+                  }
+                >
+                  {group.label}
+                </NavLink>
+              ) : (
+                <NavMenu key={group.id} group={group} />
+              )
             )}
 
-            {/* Mobile Dark Mode Toggle */}
+            <span
+              aria-hidden="true"
+              className="mx-2 h-6 w-px bg-gray-200 dark:bg-gray-700"
+            />
+
             <button
-              onClick={() => setDarkMode(!darkMode)}
-              className="w-full text-left px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors duration-200"
+              type="button"
+              onClick={toggleDarkMode}
+              aria-label={
+                darkMode ? "Switch to light mode" : "Switch to dark mode"
+              }
+              className="w-11 h-11 flex items-center justify-center rounded-md text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
             >
-              {darkMode ? "Light Mode" : "Dark Mode"}
+              <ThemeIcon size={18} aria-hidden="true" />
             </button>
+            {sessionAction()}
           </div>
+
+          <button
+            type="button"
+            className="md:hidden -mr-2 w-11 h-11 flex items-center justify-center rounded-md text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+            onClick={() => setDrawerOpen(true)}
+            aria-label="Open navigation"
+            aria-expanded={drawerOpen}
+            aria-controls={DRAWER_ID}
+          >
+            <Menu size={22} aria-hidden="true" />
+          </button>
         </div>
-      )}
-    </nav>
+      </nav>
+
+      {/*
+        Deliberately a sibling of <nav>, not a child.
+
+        `backdrop-blur` sets a backdrop-filter, and any element with one becomes
+        the containing block for its fixed-position descendants. Nested inside,
+        the drawer's `fixed inset-0` resolved against the 56px-tall bar instead
+        of the viewport: a stub panel with the links crushed out of it by
+        `flex-1` and the page showing through underneath.
+      */}
+      <NavDrawer
+        id={DRAWER_ID}
+        open={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        groups={groups}
+        footer={
+          <>
+            <button
+              type="button"
+              onClick={toggleDarkMode}
+              className={`${navRowClass(false)} w-full`}
+            >
+              <ThemeIcon size={18} aria-hidden="true" />
+              {darkMode ? "Light mode" : "Dark mode"}
+            </button>
+            {sessionAction("w-full")}
+          </>
+        }
+      />
+    </>
   );
 };
 

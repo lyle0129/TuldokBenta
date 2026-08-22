@@ -5,6 +5,18 @@
     <link rel="icon" type="image/svg+xml" href="/Spincredible.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Spincredible POS</title>
+    <!--
+      Applies the saved theme before the first paint. React only adds the class
+      once it mounts, which flashed a white page at dark-mode users on every
+      load. The key is spelled out because this runs before any module — it is
+      THEME_KEY in src/utils/storage.js.
+    -->
+    <script>
+      try {
+        if (localStorage.getItem("theme") === "dark")
+          document.documentElement.classList.add("dark");
+      } catch (e) {}
+    </script>
   </head>
   <body>
     <div id="root"></div>

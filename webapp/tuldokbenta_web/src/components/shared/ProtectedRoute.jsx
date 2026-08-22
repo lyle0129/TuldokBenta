@@ -1,10 +1,12 @@
 import { useState } from "react";
 import { Navigate } from "react-router-dom";
+import { signIn } from "../../utils/auth";
+import { useAuth } from "../../hooks/useAuth";
 
 const ProtectedRoute = ({ children }) => {
-  const [authenticated, setAuthenticated] = useState(
-    localStorage.getItem("authenticated") === "true"
-  );
+  // Shared with the navbar rather than held locally, so signing in here unhides
+  // the admin links up there without a reload.
+  const authenticated = useAuth();
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
 
@@ -16,8 +18,7 @@ const ProtectedRoute = ({ children }) => {
       setError("Incorrect password.");
       return;
     }
-    localStorage.setItem("authenticated", "true");
-    setAuthenticated(true);
+    signIn();
     setError("");
   };
 
