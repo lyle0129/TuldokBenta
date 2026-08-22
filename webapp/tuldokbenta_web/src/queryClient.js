@@ -16,16 +16,16 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 /**
  * Every key in one place, so a read and its invalidation can't drift apart.
  *
- * Both closed-sales keys share the ["closedSales"] prefix on purpose: one
- * invalidation of that prefix covers the full table and every cached day.
+ * Every closed-sales key shares the ["closedSales"] prefix on purpose: one
+ * invalidation of that prefix covers every cached day and window.
  */
 export const queryKeys = {
   inventory: ["inventory"],
   services: ["services"],
   paymentMethods: ["paymentMethods"],
   openSales: ["openSales"],
+  nextInvoice: ["nextInvoice"],
   closedSales: ["closedSales"],
-  closedSalesAll: ["closedSales", "all"],
   closedSalesDay: (isoDate) => ["closedSales", "day", isoDate],
   // The report's window: everything created by `to` that was still unpaid at
   // `from`. Wider than the day view's slice, so it gets its own entry.
@@ -37,9 +37,8 @@ export const queryKeys = {
  *
  * Mutations invalidate explicitly, so these only govern how fast *another
  * device's* changes show up. Services are edited rarely; stock moves with every
- * sale; sales are the tightest because OpenSales derives the next invoice
- * number from max(open ∪ closed) + 1 and a stale maximum means a duplicate the
- * server's unique constraint rejects.
+ * sale; sales are the tightest because the open-sales list is what a second
+ * cashier is acting on — a stale one invites paying or deleting a sale twice.
  */
 export const staleTimes = {
   services: 5 * 60 * 1000,

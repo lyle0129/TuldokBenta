@@ -8,6 +8,14 @@ import {
   normalizeCustomerName,
 } from "../utils/saleItems.js";
 import { assertMethodActive } from "../utils/paymentMethods.js";
+import {
+  formatInvoiceNumber,
+  highestInvoiceSeq,
+  isInvoiceTaken,
+} from "../utils/invoiceNumber.js";
+
+/** How many times to re-pick a number when a concurrent create beats us to it. */
+const INVOICE_ATTEMPTS = 5;
 
 /**
  * Applies a set of stock changes and a sale mutation as one atomic batch.
@@ -65,13 +73,45 @@ export const getOpenSales = async (req, res) => {
   }
 };
 
-// POST /api/open-sales
+/**
+ * GET /api/next-invoice
+ *
+ * A preview of the number the next sale will most likely get, so the cart can show
+ * the cashier where the numbering stands. Deliberately not a reservation: two cashiers
+ * asking at once get the same answer, and whoever checks out second is allocated the
+ * one after it. The alternative was the client's old approach — download every closed
+ * sale and take the maximum — which cost the whole table for one integer and was no
+ * more accurate.
+ */
+export const getNextInvoice = async (_req, res) => {
+  try {
+    const seq = (await highestInvoiceSeq(sql)) + 1;
+    res.status(200).json({ invoice_number: formatInvoiceNumber(seq) });
+  } catch (error) {
+    console.error("Error reading the next invoice number", error);
+    res.status(500).json({ message: "Internal Server Error" });
+  }
+};
+
+/**
+ * POST /api/open-sales
+ *
+ * The invoice number is allocated here, not supplied by the caller. Sending one is
+ * optional and means "use this if it's free" — which is what the offline queue does,
+ * since a sale saved there already has a number on a printed receipt. A number that
+ * is taken is replaced rather than refused: the offline page's only job is to get a
+ * stranded sale onto the server, and a 409 used to strand it until someone retyped
+ * the number by hand. `invoice_reassigned` tells the caller that happened so it can
+ * ask for a reprint.
+ */
 export const createOpenSale = async (req, res) => {
   try {
-    const { invoice_number, items } = req.body;
-    if (!invoice_number) {
-      return res.status(400).json({ message: "Invoice number is required" });
-    }
+    const { items } = req.body;
+    const requested =
+      typeof req.body.invoice_number === "string"
+        ? req.body.invoice_number.trim()
+        : "";
+
     const customerName = normalizeCustomerName(req.body.customer_name);
     validateItems(items);
     if (items.length === 0) {
@@ -81,17 +121,43 @@ export const createOpenSale = async (req, res) => {
     const deltas = stockDeltas([], items);
     assertStockAvailable(deltas, await loadStockFor(deltas));
 
-    // Deduction and INSERT go together: a duplicate invoice_number used to make
-    // the INSERT fail *after* stock had already been taken, destroying it.
-    const results = await applyStockAndSale(deltas, [
-      sql`
-        INSERT INTO open_sales (invoice_number, items, customer_name)
-        VALUES (${invoice_number}, ${JSON.stringify(items)}, ${customerName})
-        RETURNING *
-      `,
-    ]);
+    let invoice =
+      requested && !(await isInvoiceTaken(sql, requested)) ? requested : null;
 
-    res.status(201).json(results[results.length - 1][0]);
+    for (let attempt = 0; attempt < INVOICE_ATTEMPTS; attempt++) {
+      if (!invoice) {
+        invoice = formatInvoiceNumber((await highestInvoiceSeq(sql)) + 1);
+      }
+
+      try {
+        // Deduction and INSERT go together: a duplicate invoice_number used to make
+        // the INSERT fail *after* stock had already been taken, destroying it.
+        const results = await applyStockAndSale(deltas, [
+          sql`
+            INSERT INTO open_sales (invoice_number, items, customer_name)
+            VALUES (${invoice}, ${JSON.stringify(items)}, ${customerName})
+            RETURNING *
+          `,
+        ]);
+
+        const created = results[results.length - 1][0];
+        return res.status(201).json({
+          ...created,
+          requested_invoice_number: requested || null,
+          invoice_reassigned:
+            Boolean(requested) && created.invoice_number !== requested,
+        });
+      } catch (error) {
+        // The checks above are plain reads, so another create can still take the
+        // number between them and this INSERT. That's a 23505, and it rolled the
+        // whole transaction back — stock included — so picking the next number and
+        // trying again is safe rather than double-deducting.
+        if (error?.code !== "23505") throw error;
+        invoice = null;
+      }
+    }
+
+    throw badRequest("Could not allocate an invoice number. Please try again.");
   } catch (error) {
     fail(res, error, "Error creating open sale");
   }

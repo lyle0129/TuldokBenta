@@ -93,13 +93,6 @@ describe('read hook fetch URLs', () => {
     )
   })
 
-  it('useClosedSales calls fetch with URLs starting with API_BASE_URL', async () => {
-    await expectAllUrlsUnderBaseUrl(
-      'useClosedSales',
-      async () => (await import('../hooks/useSales.js')).useClosedSales
-    )
-  })
-
   it('useClosedSalesForDay calls fetch with URLs starting with API_BASE_URL', async () => {
     const { useClosedSalesForDay } = await import('../hooks/useSales.js')
     const calls = mockFetch()

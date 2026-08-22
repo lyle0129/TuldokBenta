@@ -23,7 +23,8 @@ const escapeHtml = (value) =>
  * @param {Object} sale
  * @param {string}  sale.invoice_number
  * @param {string}  [sale.customer_name] - printed only if present and non-empty
- * @param {string}  sale.created_at      - ISO timestamp
+ * @param {string}  [sale.created_at]    - ISO timestamp, on a sale from the server
+ * @param {string}  [sale.date]          - ISO timestamp, on a sale queued offline
  * @param {string}  [sale.paid_at]       - ISO timestamp; included only if present and non-null
  * @param {Array}   sale.items
  * @param {string}  [sale.items[].type]          - "service" | "item"
@@ -81,6 +82,11 @@ export function printInvoice(sale) {
     })
     .join("");
 
+  // `date` as well as `created_at`: a sale still sitting in the offline queue has no
+  // created_at — the server assigns that on sync — so every pre-sync receipt printed
+  // "Invalid Date".
+  const printedDate = new Date(sale.created_at ?? sale.date).toLocaleString();
+
   const newPage = window.open("", "_blank", "width=600,height=800");
 
   if (!newPage) {
@@ -131,7 +137,7 @@ export function printInvoice(sale) {
             ? `<p>Customer: ${escapeHtml(sale.customer_name)}</p>`
             : ""
         }
-        <p>Date: ${new Date(sale.created_at).toLocaleString()}</p>
+        <p>Date: ${printedDate}</p>
         ${
           sale.paid_at
             ? `<p>Paid: ${new Date(sale.paid_at).toLocaleString()}</p>`

@@ -193,6 +193,35 @@ describe('Property 2 — invoice uses correct name field per item type', () => {
 })
 
 // ---------------------------------------------------------------------------
+// Date — a sale from the server carries created_at, one queued offline carries
+// `date`, and both have to print
+// ---------------------------------------------------------------------------
+describe('date line', () => {
+  it('prints a queued offline sale, which has `date` and no created_at', async () => {
+    // The offline page stores its timestamp as `date`; this function only read
+    // `created_at`, so every pre-sync receipt printed "Invalid Date".
+    const html = await renderSale({
+      invoice_number: 'INV-0001',
+      date: '2026-01-01T00:00:00.000Z',
+      items: [{ type: 'item', item_name: 'Ariel', price: 50, qty: 1 }],
+    })
+    expect(html).toContain('Date: ')
+    expect(html).not.toContain('Invalid Date')
+    expect(html).toContain(new Date('2026-01-01T00:00:00.000Z').toLocaleString())
+  })
+
+  it('prefers created_at once the server has assigned one', async () => {
+    const html = await renderSale({
+      invoice_number: 'INV-0001',
+      created_at: '2026-03-04T00:00:00.000Z',
+      date: '2026-01-01T00:00:00.000Z',
+      items: [{ type: 'item', item_name: 'Ariel', price: 50, qty: 1 }],
+    })
+    expect(html).toContain(new Date('2026-03-04T00:00:00.000Z').toLocaleString())
+  })
+})
+
+// ---------------------------------------------------------------------------
 // Customer name — optional, so the line has to be absent rather than empty
 // ---------------------------------------------------------------------------
 describe('customer name', () => {

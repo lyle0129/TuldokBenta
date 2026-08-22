@@ -16,11 +16,7 @@ import { act, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { useInventory } from "../hooks/useInventory";
 import { useServices } from "../hooks/useServices";
-import {
-  useOpenSales,
-  useClosedSales,
-  useSaleMutations,
-} from "../hooks/useSales";
+import { useOpenSales, useSaleMutations } from "../hooks/useSales";
 import {
   renderWithQuery,
   createTestQueryClient,
@@ -82,19 +78,21 @@ describe("shared read cache", () => {
     useInventory();
     useServices();
     useOpenSales();
-    useClosedSales();
     return null;
   };
 
-  it("asks for each of the Open Sales page's four lists exactly once per mount", async () => {
+  it("asks for each of the Open Sales page's three lists exactly once per mount", async () => {
     const calls = mockFetch();
     renderWithQuery(<OpenSalesReads />);
 
-    await waitFor(() => expect(calls.length).toBe(4));
+    await waitFor(() => expect(calls.length).toBe(3));
     expect(countGets(calls, "/inventory")).toBe(1);
     expect(countGets(calls, "/services")).toBe(1);
     expect(countGets(calls, "/open-sales")).toBe(1);
-    expect(countGets(calls, "/closed-sales")).toBe(1);
+    // Three, not four: the page used to pull the entire closed-sales table on
+    // every mount purely to compute max(invoice_number) + 1. The server
+    // allocates the number now, so nothing reads that endpoint here.
+    expect(countGets(calls, "/closed-sales")).toBe(0);
   });
 
   it("asks for nothing on a remount while the cache is still fresh", async () => {
@@ -105,7 +103,7 @@ describe("shared read cache", () => {
     const client = createTestQueryClient({ gcTime: 5 * 60 * 1000 });
 
     const first = renderWithQuery(<OpenSalesReads />, { client });
-    await waitFor(() => expect(calls.length).toBe(4));
+    await waitFor(() => expect(calls.length).toBe(3));
     first.unmount();
     calls.length = 0;
 
@@ -193,9 +191,42 @@ describe("mutation failures", () => {
 
     let result;
     await act(async () => {
-      result = await captured.createOpenSale({ invoice_number: "INV-0001", items: [] });
+      result = await captured.createOpenSale({ items: [] });
     });
 
-    expect(result).toEqual({ ok: false, message: "Not enough stock for Ariel" });
+    expect(result).toEqual({
+      ok: false,
+      message: "Not enough stock for Ariel",
+      data: null,
+    });
+  });
+
+  it("hands the created sale back, so the caller can read the allocated invoice number", async () => {
+    // The number is the server's to choose now. A caller that sent one still has to
+    // be told what it actually got — the offline queue asks for a reprint on that.
+    const created = {
+      id: 7,
+      invoice_number: "INV-0087",
+      requested_invoice_number: "INV-0003",
+      invoice_reassigned: true,
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ ok: true, status: 201, json: async () => created }))
+    );
+
+    const captured = {};
+    const Harness = () => {
+      Object.assign(captured, useSaleMutations());
+      return null;
+    };
+    renderWithQuery(<Harness />);
+
+    let result;
+    await act(async () => {
+      result = await captured.createOpenSale({ invoice_number: "INV-0003", items: [] });
+    });
+
+    expect(result).toEqual({ ok: true, message: null, data: created });
   });
 });

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useSaleMutations } from "../hooks/useSales";
 import { useCart } from "../hooks/useCart";
 import { useOfflineCatalog } from "../hooks/useOfflineCatalog";
@@ -13,7 +13,17 @@ import { buildSaleItems, isFreeLine } from "../utils/buildSaleItems";
 import { freebieGapsFromCart, describeFreebieGaps } from "../utils/freebies";
 import { filterSales } from "../utils/filterSales";
 import { formatCurrency, formatDateTime, saleTotal } from "../utils/format";
-import { readJSON, writeJSON, OFFLINE_SALES_KEY } from "../utils/storage";
+import {
+  formatInvoiceNumber,
+  parseInvoiceSeq,
+  maxInvoiceSeq,
+} from "../utils/invoiceNumber";
+import {
+  readJSON,
+  writeJSON,
+  OFFLINE_SALES_KEY,
+  OFFLINE_NEXT_INVOICE_KEY,
+} from "../utils/storage";
 import {
   saleCardClass,
   saleActionsClass,
@@ -26,7 +36,15 @@ const OpenSalesOffline = () => {
   // whenever a sale is synced or deleted, and the status banner doesn't block
   // the list, so a captured index could land the save on a different sale.
   const [editingSale, setEditingSale] = useState(null);
-  const [deletingIndex, setDeletingIndex] = useState(null);
+  const [deletingSale, setDeletingSale] = useState(null);
+  // The queue element currently being synced, so its button can be disabled. A
+  // double-click used to fire two POSTs; the second was a harmless duplicate-invoice
+  // rejection, but now that the server allocates a fresh number on collision it would
+  // create a second real sale and deduct the stock twice.
+  const [syncingSale, setSyncingSale] = useState(null);
+  // A sale that landed on a different number than it was queued under.
+  // { requested: string, created: <the server's row> }
+  const [reassigned, setReassigned] = useState(null);
   const [showCart, setShowCart] = useState(false);
   const [freebieGaps, setFreebieGaps] = useState(null);
   // Replaces the alert() storm this page ran on — a banner can be read while
@@ -67,26 +85,53 @@ const OpenSalesOffline = () => {
   const [invoiceNumber, setInvoiceNumber] = useState("INV-0001");
   const [customerName, setCustomerName] = useState("");
 
+  // The queue as it stands right now, for the async handler below. It can't read
+  // `sales`: that is captured when the handler is created, and a request in flight
+  // outlives the snapshot. Delete a sale while another is syncing and the finished
+  // sync used to write back the array the deleted one was still in, resurrecting it.
+  const salesRef = useRef([]);
+
+  // The in-flight guard, separate from `syncingSale`. That state drives the button's
+  // disabled look but is only readable as of the last render; this is true the
+  // instant the request starts, which is what a second click has to be measured
+  // against when the cost of missing one is a duplicated sale.
+  const syncingRef = useRef(false);
+
   // 🧠 Load sales and next invoice from localStorage
   useEffect(() => {
     // readJSON tolerates corrupt data; a bare JSON.parse used to throw during
     // render and white-screen the page, taking the queue with it.
     const stored = readJSON(OFFLINE_SALES_KEY, []);
+    salesRef.current = stored;
     setSales(stored);
 
-    if (stored.length > 0) {
-      const numbers = stored
-        .map((s) => parseInt(s.invoice_number.replace("INV-", ""), 10))
-        .filter((n) => !isNaN(n));
-      const max = numbers.length > 0 ? Math.max(...numbers) : 0;
-      const next = String(max + 1).padStart(4, "0");
-      setInvoiceNumber(`INV-${next}`);
-    }
+    // Two sources, whichever is further along. The queue alone is not enough: it
+    // empties as sales sync, and on the next reload numbering restarted from
+    // INV-0001 — so the very next offline sale was already taken on the server. The
+    // cached value is the number the online page last saw handed out.
+    const cachedSeq = Number(readJSON(OFFLINE_NEXT_INVOICE_KEY, 0)) || 0;
+    const queueSeq = maxInvoiceSeq(stored.map((s) => s.invoice_number)) + 1;
+    setInvoiceNumber(formatInvoiceNumber(Math.max(cachedSeq, queueSeq, 1)));
   }, []);
 
   const persist = (updated) => {
+    salesRef.current = updated;
     setSales(updated);
     return writeJSON(OFFLINE_SALES_KEY, updated);
+  };
+
+  /** Drops a sale by identity, against the queue as it stands now. */
+  const removeFromQueue = (sale) =>
+    persist(salesRef.current.filter((s) => s !== sale));
+
+  /** The next number this page should offer, skipping anything already queued. */
+  const advanceInvoice = (current, queue) => {
+    const used = new Set(
+      queue.map((s) => parseInvoiceSeq(s.invoice_number)).filter((n) => n !== null)
+    );
+    let seq = (parseInvoiceSeq(current) ?? 0) + 1;
+    while (used.has(seq)) seq++;
+    return formatInvoiceNumber(seq);
   };
 
   // 💾 Save to localStorage
@@ -98,13 +143,13 @@ const OpenSalesOffline = () => {
       date: new Date().toISOString(),
     };
 
-    if (!persist([...sales, sale])) {
+    const updated = [...sales, sale];
+    if (!persist(updated)) {
       setStatus({ tone: "error", text: "Could not write to offline storage." });
       return;
     }
 
-    const nextNum = parseInt(invoiceNumber.replace("INV-", ""), 10) + 1;
-    setInvoiceNumber(`INV-${String(nextNum).padStart(4, "0")}`);
+    setInvoiceNumber(advanceInvoice(invoiceNumber, updated));
 
     clearCart();
     setCustomerName("");
@@ -125,29 +170,50 @@ const OpenSalesOffline = () => {
     saveOffline();
   };
 
-  const deleteSale = (idx) => persist(sales.filter((_, i) => i !== idx));
+  /**
+   * Pushes one queued sale up to the server.
+   *
+   * The queued invoice number is a request, not a demand. It was allocated offline
+   * against nothing but this queue, so it is usually taken by the time the
+   * connection comes back; the server then opens the sale on the next free number
+   * instead of refusing it, and says so. That's the point of this page — a stranded
+   * sale has to be able to land — but it does mean the receipt the customer is
+   * holding now shows the wrong number, which is what the dialog below is for.
+   */
+  const handleCreateOpenSale = async (sale) => {
+    if (syncingRef.current) return;
+    syncingRef.current = true;
+    setSyncingSale(sale);
 
-  const handleCreateOpenSale = async (sale, index) => {
     try {
       // An explicit whitelist, not a spread: `total` and `created_at` were
       // computed here and then discarded server-side. Anything the server
       // should keep has to be named — customer_name included.
-      const { ok, message } = await createOpenSale({
+      const { ok, message, data } = await createOpenSale({
         invoice_number: sale.invoice_number,
         items: sale.items,
         customer_name: sale.customer_name ?? null,
       });
 
       if (ok) {
-        persist(sales.filter((_, i) => i !== index));
-        setStatus({
-          tone: "ok",
-          text: `Open Sale “${sale.invoice_number}” created and removed from offline storage.`,
-        });
+        removeFromQueue(sale);
+
+        if (data?.invoice_reassigned) {
+          // A dialog, not the status banner. The receipt in the customer's hand now
+          // shows a number that belongs to a different sale, and that has to be
+          // dealt with before the next customer — a banner above the fold is too
+          // easy to walk past.
+          setReassigned({ requested: sale.invoice_number, created: data });
+        } else {
+          setStatus({
+            tone: "ok",
+            text: `Open Sale “${data?.invoice_number ?? sale.invoice_number}” created and removed from offline storage.`,
+          });
+        }
       } else {
-        // Kept in local storage so it can be retried — commonly this is an
-        // invoice number that already exists on the server, which the View
-        // modal can edit before trying again.
+        // Kept in local storage so it can be retried. A duplicate invoice number is
+        // no longer one of the reasons this fails — what's left is a genuine stock
+        // shortage, or a server still out of reach.
         setStatus({
           tone: "error",
           text: `Could not create “${sale.invoice_number}”: ${message} It is still saved offline.`,
@@ -159,6 +225,9 @@ const OpenSalesOffline = () => {
         tone: "error",
         text: `Unexpected error while creating “${sale.invoice_number}”.`,
       });
+    } finally {
+      syncingRef.current = false;
+      setSyncingSale(null);
     }
   };
 
@@ -317,9 +386,11 @@ const OpenSalesOffline = () => {
         ) : (
           <div className="space-y-4">
             {visibleSales.map((s) => {
-              // Index in the underlying queue, not the filtered view — the
-              // mutations below splice `sales` itself.
+              // Position in the underlying queue, not the filtered view. Used for
+              // the key only — every mutation below identifies the sale by the
+              // element itself, since positions shift as sales sync.
               const i = sales.indexOf(s);
+              const isSyncing = syncingSale === s;
 
               return (
                 <div key={`${s.invoice_number}-${i}`} className={saleCardClass}>
@@ -372,10 +443,11 @@ const OpenSalesOffline = () => {
                   <div className={saleActionsClass}>
                     <button
                       type="button"
-                      onClick={() => handleCreateOpenSale(s, i)}
-                      className={rowActionClass(rowActionAccents.yellow)}
+                      onClick={() => handleCreateOpenSale(s)}
+                      disabled={syncingSale !== null}
+                      className={`${rowActionClass(rowActionAccents.yellow)} disabled:opacity-60 disabled:cursor-not-allowed`}
                     >
-                      Create Open Sale
+                      {isSyncing ? "Creating…" : "Create Open Sale"}
                     </button>
                     <button
                       type="button"
@@ -393,7 +465,7 @@ const OpenSalesOffline = () => {
                     </button>
                     <button
                       type="button"
-                      onClick={() => setDeletingIndex(i)}
+                      onClick={() => setDeletingSale(s)}
                       className={rowActionClass(rowActionAccents.red)}
                     >
                       Delete
@@ -443,9 +515,9 @@ const OpenSalesOffline = () => {
       {/* The same editor the online list uses, so a queued sale's lines,
           quantities and freebie picks are as editable here as they are there —
           they used to be frozen, and the only remedy was Delete and re-cart.
-          `allowInvoiceEdit` is the one difference: the server hands out online
-          invoice numbers, but a queued sale carries its own, and a duplicate is
-          exactly what the sync rejects. */}
+          `allowInvoiceEdit` is the one difference: a queued sale carries a number
+          allocated offline, and the receipt in the customer's hand shows it, so it
+          has to be correctable before the sale is printed or synced. */}
       <EditSaleModal
         allowInvoiceEdit
         sale={editingSale}
@@ -455,19 +527,44 @@ const OpenSalesOffline = () => {
         services={services}
       />
 
+      {/* The sale is already on the server at this point — there is nothing to
+          confirm or undo. What's left is telling the cashier that the receipt they
+          printed offline no longer matches, and putting the corrected one one tap
+          away. "Reprint" is the confirm action because it is the thing that still
+          needs doing. */}
       <ConfirmDialog
-        open={deletingIndex !== null}
+        open={reassigned !== null}
+        title="Invoice number changed"
+        accent="yellow"
+        message={
+          reassigned
+            ? `Invoice ${reassigned.requested} was already taken on the server, so this sale was opened as ${reassigned.created.invoice_number} instead.\n\nPlease reprint the receipt — the one printed offline shows ${reassigned.requested}.`
+            : ""
+        }
+        confirmLabel="Reprint Receipt"
+        cancelLabel="Close"
+        onCancel={() => setReassigned(null)}
+        onConfirm={() => {
+          // The server's row, not the queued one: it carries the number the sale
+          // actually has and a real created_at.
+          printInvoice(reassigned.created);
+          setReassigned(null);
+        }}
+      />
+
+      <ConfirmDialog
+        open={deletingSale !== null}
         title="Confirm Delete"
         accent="red"
         message={`Delete Invoice #${
-          sales[deletingIndex]?.invoice_number ?? ""
+          deletingSale?.invoice_number ?? ""
         }? This cannot be undone.`}
         confirmLabel="Yes, Delete"
         cancelLabel="Cancel"
-        onCancel={() => setDeletingIndex(null)}
+        onCancel={() => setDeletingSale(null)}
         onConfirm={() => {
-          deleteSale(deletingIndex);
-          setDeletingIndex(null);
+          removeFromQueue(deletingSale);
+          setDeletingSale(null);
         }}
       />
     </div>

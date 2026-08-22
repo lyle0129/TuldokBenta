@@ -13,6 +13,16 @@ export const OFFLINE_SALES_KEY = "offline_sales";
 /** Cached inventory + services snapshot the offline page sells from. */
 export const OFFLINE_CATALOG_KEY = "offline_catalog";
 
+/**
+ * Where the offline page should resume numbering, as a bare sequence number.
+ *
+ * Written by the online page after every checkout, from the number the server just
+ * handed out. Without it the offline page can only count from its own queue, so a
+ * drained queue plus a reload restarted it at INV-0001 — guaranteeing a clash with
+ * the server on the next sync.
+ */
+export const OFFLINE_NEXT_INVOICE_KEY = "offline_next_invoice";
+
 /** Admin session flag, written by the password gate. */
 export const AUTH_KEY = "authenticated";
 

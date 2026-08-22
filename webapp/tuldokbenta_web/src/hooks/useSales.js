@@ -29,26 +29,35 @@ export const useOpenSales = () => {
 };
 
 /**
- * Every closed sale. Needed by Reporting (which filters client-side) and by the
- * Open Sales invoice-number generator, which needs the global maximum.
+ * A preview of the number the next sale will get, for the cart to display.
  *
- * Note this endpoint is unbounded — see the follow-up note in the plan. Caching
- * stops the repeat downloads but not the growth of the first one.
+ * This replaces the client-side generator that produced the same string by
+ * downloading every open *and* closed sale and taking the maximum — the whole
+ * closed-sales table, on every visit to the page, for one integer.
+ *
+ * It's a preview, not a reservation: the server allocates the real number when the
+ * sale is posted, so a second cashier checking out first simply moves this on. That
+ * was equally true of the old client-side version, and is now handled rather than
+ * rejected — see createOpenSale in the controller.
  */
-export const useClosedSales = () => {
-  const { data, isLoading, isFetching, error } = useQuery({
-    queryKey: queryKeys.closedSalesAll,
-    queryFn: ({ signal }) => apiRequest("/closed-sales", { signal }),
+export const useNextInvoice = () => {
+  const { data, isLoading, error } = useQuery({
+    queryKey: queryKeys.nextInvoice,
+    queryFn: ({ signal }) => apiRequest("/next-invoice", { signal }),
     staleTime: staleTimes.sales,
   });
 
   return {
-    closedSales: data ?? [],
+    nextInvoice: data?.invoice_number ?? null,
     isLoading,
-    isFetching,
     error: error?.message ?? null,
   };
 };
+
+/**
+ * Note: there is deliberately no hook for the unbounded `/closed-sales`. Its only
+ * caller was that invoice-number generator. Reporting uses the bounded windows below.
+ */
 
 /**
  * One calendar day of closed sales, cached per day.
@@ -136,8 +145,10 @@ export const useClosedSalesWindow = (from, to) => {
  * transaction (openSalesController.applyStockAndSale), while pay and revert
  * only move the row between tables and leave stock alone.
  *
- * Every mutation resolves to { ok, message } rather than throwing, because that
- * is the contract the cart, edit modal and offline queue already report from.
+ * Every mutation resolves to { ok, message, data } rather than throwing, because that
+ * is the contract the cart, edit modal and offline queue already report from. `data`
+ * is the server's response body — createOpenSale's callers read the allocated
+ * invoice number back out of it.
  */
 export const useSaleMutations = () => {
   const queryClient = useQueryClient();
@@ -147,8 +158,10 @@ export const useSaleMutations = () => {
       keys.map((queryKey) => queryClient.invalidateQueries({ queryKey }))
     );
 
+  // nextInvoice rides along: opening a sale consumes a number, and deleting the
+  // newest one frees it again, so the cart's preview has to move with both.
   const openSalesAndStock = () =>
-    invalidate([queryKeys.openSales, queryKeys.inventory]);
+    invalidate([queryKeys.openSales, queryKeys.inventory, queryKeys.nextInvoice]);
 
   /** Moves a row between open and closed; stock was settled when it opened. */
   const bothSaleTables = () =>
@@ -156,11 +169,11 @@ export const useSaleMutations = () => {
 
   const run = async (mutation, args, fallbackMessage) => {
     try {
-      await mutation.mutateAsync(args);
-      return { ok: true, message: null };
+      const data = await mutation.mutateAsync(args);
+      return { ok: true, message: null, data };
     } catch (err) {
       console.error(fallbackMessage, err);
-      return { ok: false, message: err?.message || fallbackMessage };
+      return { ok: false, message: err?.message || fallbackMessage, data: null };
     }
   };
 
@@ -209,7 +222,8 @@ export const useSaleMutations = () => {
 
   const deleteClosedMutation = useMutation({
     mutationFn: (id) => apiRequest(`/closed-sales/${id}`, { method: "DELETE" }),
-    onSuccess: () => invalidate([queryKeys.closedSales]),
+    // nextInvoice too: deleting the highest-numbered sale on file frees that number.
+    onSuccess: () => invalidate([queryKeys.closedSales, queryKeys.nextInvoice]),
   });
 
   return {

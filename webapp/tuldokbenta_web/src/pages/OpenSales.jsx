@@ -4,7 +4,7 @@ import { useInventory } from "../hooks/useInventory";
 import { useServices } from "../hooks/useServices";
 import {
   useOpenSales,
-  useClosedSales,
+  useNextInvoice,
   useSaleMutations,
 } from "../hooks/useSales";
 import { useCart } from "../hooks/useCart";
@@ -15,19 +15,25 @@ import CartModal from "../components/open-sales/CartModal";
 import ConfirmDialog from "../components/shared/ConfirmDialog";
 import { buildSaleItems } from "../utils/buildSaleItems";
 import { freebieGapsFromCart, describeFreebieGaps } from "../utils/freebies";
-import { writeJSON, OFFLINE_CATALOG_KEY } from "../utils/storage";
+import { parseInvoiceSeq } from "../utils/invoiceNumber";
+import {
+  writeJSON,
+  OFFLINE_CATALOG_KEY,
+  OFFLINE_NEXT_INVOICE_KEY,
+} from "../utils/storage";
 
 const OpenSales = () => {
   const { inventory } = useInventory();
   const { services } = useServices();
   const { openSales } = useOpenSales();
-  // Only for the invoice-number maximum below; the list itself isn't rendered
-  // here. Reporting reads the same cache entry.
-  const { closedSales } = useClosedSales();
+  // What the next sale will be numbered, so the cashier can see where the numbering
+  // stands from inside the cart. One small query — this page used to derive the same
+  // string from max(open ∪ closed) + 1, which meant downloading the entire
+  // closed-sales table for one integer.
+  const { nextInvoice } = useNextInvoice();
   const { createOpenSale, updateOpenSale, deleteOpenSale, paySale } =
     useSaleMutations();
 
-  const [nextInvoice, setNextInvoice] = useState("INV-0001");
   const [customerName, setCustomerName] = useState("");
   const [showCart, setShowCart] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -47,23 +53,6 @@ const OpenSales = () => {
     removeItem,
   } = useCart();
 
-  // 🔢 Generate next invoice number across both open + closed
-  useEffect(() => {
-    const allSales = [...openSales, ...(closedSales || [])];
-
-    if (allSales.length > 0) {
-      const numbers = allSales
-        .map((s) => s.invoice_number)
-        .filter(Boolean)
-        .map((inv) => parseInt(inv.replace("INV-", ""), 10));
-      const max = numbers.length > 0 ? Math.max(...numbers) : 0;
-      const next = String(max + 1).padStart(4, "0");
-      setNextInvoice(`INV-${next}`);
-    } else {
-      setNextInvoice("INV-0001");
-    }
-  }, [openSales, closedSales]);
-
   // Keep the offline page's catalog fresh as a side effect of normal online
   // use, so it rarely has to fall back to the built-in seed list.
   useEffect(() => {
@@ -79,15 +68,23 @@ const OpenSales = () => {
     setIsSubmitting(true);
     setCheckoutError(null);
 
+    // No invoice_number: the server allocates it. See createOpenSale in
+    // backend/controllers/openSalesController.js.
     const sale = {
-      invoice_number: nextInvoice,
       items: buildSaleItems(cart),
       customer_name: customerName.trim() || null,
     };
-    const { ok, message } = await createOpenSale(sale);
+    const { ok, message, data } = await createOpenSale(sale);
 
     setIsSubmitting(false);
     if (ok) {
+      // Hand the offline page a starting point. It can only count from its own
+      // queue otherwise, so a drained queue plus a reload restarted it at INV-0001
+      // and every sync then collided. This is the freshest signal available and
+      // costs no extra request.
+      const seq = parseInvoiceSeq(data?.invoice_number);
+      if (seq !== null) writeJSON(OFFLINE_NEXT_INVOICE_KEY, seq + 1);
+
       // Stock changed server-side, but the mutation already invalidated the
       // inventory cache — no manual refetch needed.
       clearCart();
@@ -120,12 +117,14 @@ const OpenSales = () => {
         <h1 className="text-2xl sm:text-3xl font-bold text-gray-800 dark:text-gray-100">
           Open Sales
         </h1>
-        <span className="text-sm text-gray-600 dark:text-gray-400">
-          Next invoice:{" "}
-          <span className="font-semibold text-blue-700 dark:text-blue-400">
-            {nextInvoice}
+        {nextInvoice && (
+          <span className="text-sm text-gray-600 dark:text-gray-400">
+            Next invoice:{" "}
+            <span className="font-semibold text-blue-700 dark:text-blue-400">
+              {nextInvoice}
+            </span>
           </span>
-        </span>
+        )}
       </div>
 
       <CatalogGrid
@@ -168,10 +167,10 @@ const OpenSales = () => {
         customerName={customerName}
         onCustomerNameChange={setCustomerName}
         onCheckout={handleCheckout}
-        checkoutLabel={`Open Sale ${nextInvoice}`}
+        checkoutLabel={nextInvoice ? `Open Sale ${nextInvoice}` : "Open Sale"}
         isSubmitting={isSubmitting}
         errorMessage={checkoutError}
-        title={`Cart · ${nextInvoice}`}
+        title={nextInvoice ? `Cart · ${nextInvoice}` : "Cart"}
       />
 
       <ConfirmDialog

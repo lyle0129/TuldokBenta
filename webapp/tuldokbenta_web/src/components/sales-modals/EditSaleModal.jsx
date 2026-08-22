@@ -322,9 +322,9 @@ const EditSaleModal = ({
         )}
 
         <div className="mb-4 pb-4 border-b border-gray-200 dark:border-gray-700">
-          {/* Offline only. The server hands out online invoice numbers, but a
-              queued sale keeps its own, and a duplicate is exactly what the
-              sync rejects — so it has to be fixable by hand. */}
+          {/* Offline only. The server hands out invoice numbers, but a queued sale
+              carries one allocated offline and printed on the customer's receipt —
+              so it has to be fixable before the sale is printed or synced. */}
           {allowInvoiceEdit && (
             <div className="mb-4">
               <label htmlFor="edit-invoice-number" className={labelClass}>
