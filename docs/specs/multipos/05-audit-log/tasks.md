@@ -107,11 +107,11 @@ this ticket shipped.
   - **Including the last one**: rename `audit_log` to break the insert, take a sale, and
     confirm the sale still succeeds with an error logged. This is the difference between an
     audit trail and a new way for the till to fail, and it is the check people skip
-    — ⚠️ **NOT DONE.** Deliberately deferred: the only configured database is production, and
-    renaming the table there breaks audit writes for the live shop for the length of the check.
-    P3 in `utils/audit.test.js` proves `recordAudit` resolves against an always-failing `sql`
-    tag, which is the same property without the blast radius, but it is not the end-to-end
-    check. Run it against a Neon branch before ticket 12
+    — ✅ **DONE IN TICKET 06**, on the Neon branch, back to back with its mirror image: with
+    `audit_log` renamed away, a sale still returned 201 while a date correction answered 500
+    and left the date untouched. Confirming both is what proves the two write modes actually
+    differ rather than differ on paper. P3 in `utils/audit.test.js` had already shown
+    `recordAudit` resolves against an always-failing `sql` tag; this is the end-to-end half
   - Confirm two shops' events are separable by `shop_id` ✅
   - Confirm a manager gets 403 and an unauthenticated caller gets 401 even with
     `LEGACY_UNAUTH=true` ✅ — verified with the bypass genuinely on (`/api/inventory` served a
@@ -145,6 +145,8 @@ this ticket shipped.
   both want a throwaway database. Ticket 06 has a mirror-image check — break the audit insert,
   correct a date, and the request must fail with 500 — and confirming *both* is what proves the
   two write modes actually differ. Do them together on a Neon branch.
+  **The first is now done**, in ticket 06's run — see task 11 above. Task 12's query plan at
+  50k rows is still open and still wants a branch loaded with synthetic rows.
 - SP1 has one known future exception: ticket 06's `deleteUser` must count a user's `audit_log`
   rows before a hard delete. Export a helper from `utils/audit.js` for it rather than writing a
   raw query in the controller, so the structural check stays meaningful.

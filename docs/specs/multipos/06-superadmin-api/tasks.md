@@ -137,15 +137,16 @@ controller changes and no schema changes.
     without the pin its assertions pass only on a machine already running in UTC, which is the
     bug the module exists to avoid
 
-- [ ] 10. Run the integration checks — **NOT DONE**
-  - Deferred pending the Neon branch of production tickets 02 and 03 were rehearsed on. Two of
-    these checks rename `audit_log`, which breaks audit writes for the live shop for the length
-    of the run, so they must not go near the only configured database. The runner is
-    `backend/scripts/verify-ticket-06.mjs` and covers every row below plus ticket 05's two
-    carried-over checks; it records shop 1's row counts first and asserts they are unchanged at
-    the end, and removes its own scratch shops and users afterwards. Point `DATABASE_URL` at
-    the branch, boot the backend against it, and run the script (its header lists the four
-    environment variables it wants)
+- [x] 10. Run the integration checks
+  - **Done. 36 of 36 checks pass**, against the Neon branch of production tickets 02 and 03
+    were rehearsed on — `backend/.env` already pointed at it. The runner is
+    `backend/scripts/verify-ticket-06.mjs`: it creates its own super admin, shops, users and
+    sales, and removes all of them at the end. Booted with `LEGACY_UNAUTH=true`, which two of
+    the checks depend on
+  - Shop 1 was never written to. Its counts were recorded before the run and asserted
+    unchanged after it — 6,336 closed sales, 28 open, 14 inventory rows — and a full
+    fingerprint taken afterwards is identical to the one taken before: 3 shops, 3 users, 4
+    assignments, 42 audit rows, with the pre-existing scratch shops B and C untouched
   - Every row of the design's integration table
   - Confirm a newly created shop can take a sale immediately and that its first invoice is
     the shop's prefix + `0001`
@@ -155,30 +156,50 @@ controller changes and no schema changes.
     must be unchanged.** This is the opposite outcome to ticket 05's equivalent check, and
     confirming both is what proves the two write modes actually differ
   - _Requirements: 2.1, 2.4, 4.1, 4.3, 4.4, 4.5, 6.2_
+  - **Both write modes confirmed, back to back, with `audit_log` renamed away.** The date
+    correction answered 500 and the date did not move; a sale taken with the same table missing
+    still returned 201. Ticket 05's carried-over check is therefore closed too
+  - The last-super-admin guard needed thought to reach at all. The actor must not be the
+    target — self-deactivation is refused first — and every other super admin is by definition
+    active and counted, so the only caller who can reach it is a super admin whose own account
+    was just deactivated and whose access token is still valid. That is R5's deactivation lag,
+    used as the test: B deactivates A, then A takes a swing at B and is refused. The demotion
+    guard added in task 5 is refused in the same state
+  - Two failures on the first run, both in the runner rather than the API, both fixed and
+    re-run: `fetch` refuses a body on GET, and the audit sweep ticket 05 used
+    (`changes::text ~* '(password|token|hash)'`) now matches the legitimate `must_change_password`
+    key on a `user.create`. The sweep is narrowed to secret names used as JSON keys, and it also
+    asserts that every loose match is that one boolean — a correction, not a way to pass
 
-- [ ] 11. Verify the reporting impact of a correction — **NOT DONE**, same reason as task 10
+- [~] 11. Verify the reporting impact of a correction — **verified in the data, not in the browser**
   - Correct a sale's date across a month boundary, then reload `/reporting` for both months
     and watch the sale move
   - This is intended behaviour — see R4 in [the overview](../00-overview.md). The point is to
     see it working, not to prevent it
   - _Requirements: 5.7_
+  - **Done at the API level**: a sale created in August was corrected to 2 March and the shop's
+    August bucket went to 0 while March went to 1, queried on `created_at` exactly as the
+    reporting page buckets it. The page itself was not clicked through — it derives every
+    figure in the browser from `GET /api/closed-sales`, and that response is what moved. The
+    browser walk belongs with ticket 10's UI, which is where a user first sees this happen
 
-- [~] 12. Verification checkpoint — **static half done, live half pending**
-  - `npm test` in `backend/` passes ✅ — 163 tests across 41 suites, 0 failures
+- [x] 12. Verification checkpoint
+  - `npm test` in `backend/` passes ✅ — 163 tests across 41 suites, 0 failures, up from 143
   - Every module in the ticket loads and all 15 routes register on the one `/api/admin`
     router ✅ — checked by importing it with throwaway environment values, no database involved
-  - No response anywhere contains `password_hash` or `token_version` ✅ *by construction* —
-    every user-shaped response goes through `toPublicUser`, and property P4 states the key set
-    is fixed. The end-to-end confirmation is in task 10
-  - No audit `changes` payload contains a password ✅ — no handler passes one, and
-    `utils/audit.js` strips the key names unconditionally (ticket 05's P2)
-  - A manager gets 403 on every route in this ticket; an unauthenticated caller gets 401 even
-    with `LEGACY_UNAUTH=true` — ⏳ in task 10's runner; the guards are router-level and
-    unchanged from ticket 05, which verified them live
-  - The ticket-04 two-shop matrix still passes unchanged — ⏳ pending the branch
-  - Ask the user if any questions arise before closing out ✅ — the two spec deviations
-    (`updateUser`'s last-super-admin guard, and reserving ids to keep creation atomic) and the
-    three vocabulary additions were raised as they were made
+  - No response anywhere contains `password_hash` or `token_version` ✅ — property P4 fixes the
+    key set, and `GET /api/admin/users` was searched for both strings on the live run
+  - No audit `changes` payload contains a password ✅ — zero rows carry a secret-bearing JSON
+    key; see task 10 for why the sweep ticket 05 used had to be narrowed
+  - A manager gets 403 on every route in this ticket ✅ — checked across five routes covering
+    all three controllers plus the audit read — and an unauthenticated caller gets 401 even
+    with `LEGACY_UNAUTH=true` ✅, confirmed with the bypass genuinely on: `/api/inventory`
+    served a legacy actor 200 in the same run
+  - The ticket-04 two-shop matrix still passes unchanged ✅ — shops 2 and 3 and their sales are
+    untouched, and the run's own two shops repeated the scoping properties: a new shop starts
+    with an empty catalog, its own payment methods, and its own invoice series at 0001
+  - Ask the user if any questions arise before closing out ✅ — the deviations were raised as
+    they were made, and the choice of database was confirmed before anything destructive ran
 
 ## Notes
 
