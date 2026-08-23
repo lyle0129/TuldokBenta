@@ -12,6 +12,7 @@ import {
   verifyRefreshToken,
 } from "../utils/tokens.js";
 import { toErrorResponse } from "../utils/saleItems.js";
+import { recordAudit, ACTIONS } from "../utils/audit.js";
 
 /**
  * One 401 for a wrong password, an unknown username and a deactivated account
@@ -85,6 +86,33 @@ const findByUsername = async (username) => {
   return rows[0] ?? null;
 };
 
+/**
+ * Every auth event, recorded the same way.
+ *
+ * `shop_id: null` on all four — signing in is not something you do *at* a shop,
+ * and there is no req.shopId here anyway: these routes mount requireRealAuth
+ * alone, never resolveShop.
+ *
+ * The actor is passed explicitly rather than left to req.user. Three of the
+ * four have one, but the important case is the fourth: a failed login never
+ * reaches a guard, so req.user does not exist, and the attempted account is the
+ * only thing worth recording.
+ *
+ * Nothing here ever receives a password. The parameter list makes that
+ * checkable by reading the call sites rather than by trusting them.
+ */
+const recordAuthEvent = (req, action, user, attemptedUsername = null) =>
+  recordAudit(req, {
+    action,
+    shop_id: null,
+    actor_user_id: user?.id ?? null,
+    actor_username: user?.username ?? attemptedUsername,
+    actor_role: user?.role ?? null,
+    entity_type: "user",
+    entity_id: user?.id ?? null,
+    entity_label: user?.username ?? attemptedUsername,
+  });
+
 export async function login(req, res) {
   try {
     const { username, password } = req.body ?? {};
@@ -93,7 +121,8 @@ export async function login(req, res) {
       return res.status(400).json({ message: "Username and password are required" });
     }
 
-    const user = await findByUsername(normalizeUsername(username));
+    const attempted = normalizeUsername(username);
+    const user = await findByUsername(attempted);
 
     // Compared against a real hash even when there is no account, so an unknown
     // username costs the same ~100ms as a known one. Skipping this would let
@@ -102,7 +131,17 @@ export async function login(req, res) {
     const correct = await verifyPassword(String(password), user?.password_hash ?? DUMMY_HASH);
 
     if (!user || !correct || !user.is_active) {
-      return res.status(401).json({ message: LOGIN_REFUSED });
+      res.status(401).json({ message: LOGIN_REFUSED });
+
+      // The response above is identical for all three failure modes, and this
+      // row deliberately is not: the log is read by the one person entitled to
+      // know the difference between a wrong password and a name nobody owns.
+      //
+      // A user we found contributes their id, so a run of attempts against a
+      // real account is greppable by actor. An unknown name leaves it NULL and
+      // survives as entity_label, which is why that column is not a foreign key.
+      recordAuthEvent(req, ACTIONS.auth.loginFailed, user, attempted);
+      return;
     }
 
     // Recorded before the response so a failure to write it fails the login
@@ -118,6 +157,12 @@ export async function login(req, res) {
       ...(await sessionFor(updated)),
       refreshToken: signRefreshToken(updated),
     });
+
+    // After the response and unawaited. `changes` stays null: there is nothing
+    // to record about a sign-in beyond who and when, and the two things that
+    // were in scope here — the password and the tokens — must never be written
+    // down anywhere.
+    recordAuthEvent(req, ACTIONS.auth.login, updated);
   } catch (error) {
     console.error("Error signing in", error);
     res.status(500).json({ message: "Internal Server Error" });
@@ -200,10 +245,12 @@ export async function me(req, res) {
  *
  * The endpoint exists anyway because ticket 05 needs somewhere to record that a
  * sign-out happened. An audit trail with sign-ins and no sign-outs is a worse
- * answer than a handler that does nothing.
+ * answer than a handler that does nothing — and recording it is now the only
+ * thing this function does.
  */
-export async function logout(_req, res) {
+export async function logout(req, res) {
   res.status(200).json({ message: "Signed out" });
+  recordAuthEvent(req, ACTIONS.auth.logout, req.user);
 }
 
 export async function changePassword(req, res) {
@@ -246,6 +293,12 @@ export async function changePassword(req, res) {
     `;
 
     res.status(200).json({ message: "Password changed. Sign in again on your other devices." });
+
+    // The fact only. Neither password goes anywhere near this row, in any form
+    // — not the old one, not the new one, not either hash. utils/audit.js would
+    // strip them anyway; not passing them is the version that stays true if
+    // somebody edits this line later.
+    recordAuthEvent(req, ACTIONS.auth.passwordChanged, user);
   } catch (error) {
     const { status, message } = toErrorResponse(error);
     if (status === 500) console.error("Error changing password", error);

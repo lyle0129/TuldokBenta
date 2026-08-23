@@ -5,6 +5,7 @@ import {
   badRequest,
 } from "../utils/saleItems.js";
 import { assertMethodActive } from "../utils/paymentMethods.js";
+import { recordAudit, diff, ACTIONS } from "../utils/audit.js";
 
 /** Absent, blank or whitespace-only means "no bound". A bare "" fails the cast. */
 const bound = (value) => {
@@ -117,6 +118,16 @@ export const updateClosedSale = async (req, res) => {
     if (updated.length === 0)
       return res.status(404).json({ message: "Sale not found" });
     res.status(200).json(updated[0]);
+
+    // After the response and unawaited — the same rule as every best-effort
+    // call site; see the comment in openSalesController.createOpenSale.
+    recordAudit(req, {
+      action: ACTIONS.sale.update,
+      entity_type: "closed_sale",
+      entity_id: updated[0].id,
+      entity_label: updated[0].invoice_number,
+      changes: diff(sale, updated[0], ["customer_name", "paid_using"]),
+    });
   } catch (error) {
     const { status, message } = toErrorResponse(error);
     if (status === 500) console.error("Error updating closed sale", error);
@@ -132,6 +143,22 @@ export const deleteClosedSale = async (req, res) => {
     if (deleted.length === 0)
       return res.status(404).json({ message: "Sale not found" });
     res.status(200).json({ message: "Closed sale deleted successfully" });
+
+    // Deleting a paid sale removes money from every report it appeared in, and
+    // the permission matrix leaves this open to a worker on purpose. RETURNING *
+    // is what makes the deleted row describable at all.
+    recordAudit(req, {
+      action: ACTIONS.sale.delete,
+      entity_type: "closed_sale",
+      entity_id: deleted[0].id,
+      entity_label: deleted[0].invoice_number,
+      changes: {
+        invoice_number: deleted[0].invoice_number,
+        line_count: Array.isArray(deleted[0].items) ? deleted[0].items.length : 0,
+        paid_using: deleted[0].paid_using,
+        paid_at: deleted[0].paid_at,
+      },
+    });
   } catch (error) {
     console.error("Error deleting closed sale", error);
     res.status(500).json({ message: "Internal Server Error" });

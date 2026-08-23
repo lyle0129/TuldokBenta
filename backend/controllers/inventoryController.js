@@ -1,6 +1,7 @@
 import { sql } from "../config/db.js";
 import { toErrorResponse } from "../utils/saleItems.js";
 import { invalidOrderedIds } from "../utils/reorder.js";
+import { recordAudit, diff, ACTIONS } from "../utils/audit.js";
 
 /**
  * `undefined`/`null` means "leave it alone" (the COALESCE cases below).
@@ -66,7 +67,18 @@ export const createOrRestockItem = async (req, res) => {
         WHERE shop_id = ${req.shopId} AND item_name = ${item_name}
         RETURNING *
       `;
-      return res.status(200).json(updated[0]);
+      res.status(200).json(updated[0]);
+
+      // This endpoint is create-or-restock in one, so the branch decides the
+      // action. Reaching an existing row means stock was added to it.
+      recordAudit(req, {
+        action: ACTIONS.inventory.restock,
+        entity_type: "inventory",
+        entity_id: updated[0].id,
+        entity_label: updated[0].item_name,
+        changes: diff(existing[0], updated[0], ["stock", "price", "item_classification"]),
+      });
+      return;
     } else {
       // New items land at the bottom of the custom order rather than at a NULL
       // sort_order, which would float them to the end unpredictably.
@@ -81,7 +93,21 @@ export const createOrRestockItem = async (req, res) => {
         )
         RETURNING *
       `;
-      return res.status(201).json(item[0]);
+      res.status(201).json(item[0]);
+
+      recordAudit(req, {
+        action: ACTIONS.inventory.create,
+        entity_type: "inventory",
+        entity_id: item[0].id,
+        entity_label: item[0].item_name,
+        changes: {
+          item_name: item[0].item_name,
+          price: item[0].price,
+          stock: item[0].stock,
+          item_classification: item[0].item_classification,
+        },
+      });
+      return;
     }
   } catch (error) {
     console.error("Error adding inventory item", error);
@@ -109,6 +135,15 @@ export const updateItem = async (req, res) => {
     // KNOWN LIMITATION: renaming `item_name` orphans any open sale holding the
     // old name, because sale items reference inventory by name string with no
     // foreign key. Restocking such a sale will match zero rows.
+    //
+    // Read first, purely so the audit row can say what the values *were*. Costs
+    // a round trip on a manager-only path that runs a few times a day — the
+    // till never touches it. Deliberately does not gate the 404 below: the
+    // UPDATE's own row count stays the authority, so behaviour is unchanged
+    // even if the row disappears between the two statements.
+    const [before] =
+      await sql`SELECT * FROM inventory WHERE id = ${id} AND shop_id = ${req.shopId}`;
+
     const updated = await sql`
       UPDATE inventory
       SET item_name = COALESCE(${item_name}, item_name),
@@ -120,6 +155,19 @@ export const updateItem = async (req, res) => {
     `;
     if (updated.length === 0) return res.status(404).json({ message: "Item not found" });
     res.status(200).json(updated[0]);
+
+    recordAudit(req, {
+      action: ACTIONS.inventory.update,
+      entity_type: "inventory",
+      entity_id: updated[0].id,
+      entity_label: updated[0].item_name,
+      changes: diff(before, updated[0], [
+        "item_name",
+        "price",
+        "stock",
+        "item_classification",
+      ]),
+    });
   } catch (error) {
     console.error("Error updating inventory item", error);
     res.status(500).json({ message: "Internal Server Error" });
@@ -155,6 +203,21 @@ export const restockItem = async (req, res) => {
     `;
     if (updated.length === 0) return res.status(404).json({ message: "Item not found" });
     res.status(200).json(updated[0]);
+
+    // The "before" is derived rather than read: the increment happened in SQL,
+    // so the row we got back minus the amount we sent IS the stock the update
+    // acted on — exact, and without the round trip a SELECT would cost.
+    recordAudit(req, {
+      action: ACTIONS.inventory.restock,
+      entity_type: "inventory",
+      entity_id: updated[0].id,
+      entity_label: updated[0].item_name,
+      changes: {
+        before: { stock: Number(updated[0].stock) - Number(amount) },
+        after: { stock: Number(updated[0].stock) },
+        amount: Number(amount),
+      },
+    });
   } catch (error) {
     fail(res, error, "Error restocking inventory item");
   }
@@ -197,6 +260,16 @@ export const reorderInventory = async (req, res) => {
     // Return the resulting list so the client can reconcile its optimistic order.
     const items = await selectOrdered(req.shopId);
     res.status(200).json(items);
+
+    // One event for the whole operation, not one per row. A reorder of forty
+    // items is a single thing the admin did, and forty rows would drown every
+    // other event in the log for that day.
+    recordAudit(req, {
+      action: ACTIONS.inventory.reorder,
+      entity_type: "inventory",
+      entity_label: `${orderedIds.length} items`,
+      changes: { orderedIds: orderedIds.map(Number) },
+    });
   } catch (error) {
     fail(res, error, "Error reordering inventory");
   }
@@ -210,6 +283,21 @@ export const deleteItem = async (req, res) => {
       await sql`DELETE FROM inventory WHERE id = ${id} AND shop_id = ${req.shopId} RETURNING *`;
     if (deleted.length === 0) return res.status(404).json({ message: "Item not found" });
     res.status(200).json({ message: "Item deleted successfully" });
+
+    recordAudit(req, {
+      action: ACTIONS.inventory.delete,
+      entity_type: "inventory",
+      entity_id: deleted[0].id,
+      entity_label: deleted[0].item_name,
+      // The whole row, because there is nothing left to look it up from — and
+      // "how much stock did we throw away" is the question this gets asked.
+      changes: {
+        item_name: deleted[0].item_name,
+        price: deleted[0].price,
+        stock: deleted[0].stock,
+        item_classification: deleted[0].item_classification,
+      },
+    });
   } catch (error) {
     console.error("Error deleting inventory item", error);
     res.status(500).json({ message: "Internal Server Error" });

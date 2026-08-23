@@ -31,6 +31,26 @@ const secret = (name) => {
   return value;
 };
 
+/**
+ * An optional whole number of days, or null when the variable is unset.
+ *
+ * Unset means the retention sweep does not run at all — deleting audit rows is
+ * not something to start doing because somebody forgot to configure it. A value
+ * that is present but unusable is a boot failure rather than a silent fallback,
+ * for the same reason the secrets above are: a typo that quietly disables a
+ * retention policy is discovered by the disk bill.
+ */
+const optionalDays = (name) => {
+  const raw = process.env[name];
+  if (!raw) return null;
+
+  const days = Number(raw);
+  if (!Number.isInteger(days) || days < 1) {
+    fail(`${name} must be a whole number of days of at least 1, got "${raw}"`);
+  }
+  return days;
+};
+
 const accessSecret = secret("JWT_ACCESS_SECRET");
 const refreshSecret = secret("JWT_REFRESH_SECRET");
 
@@ -57,6 +77,11 @@ export const env = Object.freeze({
   // all false; only the exact string "true" enables it.
   legacyUnauth: process.env.LEGACY_UNAUTH === "true",
   legacyShopId: Number(process.env.LEGACY_SHOP_ID) || 1,
+
+  // How long an audit event is kept. Null — the default — means the retention
+  // sweep is off and the table grows forever, which is the right default for a
+  // log: losing history has to be something somebody chose.
+  auditRetentionDays: optionalDays("AUDIT_RETENTION_DAYS"),
 
   // Consumed once by the super-admin seed, and null the rest of the time.
   seedSuperadminUsername: process.env.SEED_SUPERADMIN_USERNAME ?? null,

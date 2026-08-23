@@ -1,5 +1,6 @@
 import { sql } from "../config/db.js";
 import { invalidOrderedIds } from "../utils/reorder.js";
+import { recordAudit, diff, ACTIONS } from "../utils/audit.js";
 
 /** Ordering used everywhere: the admin's custom order, then name for un-numbered rows. */
 const selectOrdered = (shopId) =>
@@ -36,6 +37,20 @@ export async function createService(req, res) {
       RETURNING *
     `;
     res.status(201).json(service[0]);
+
+    // After the response and unawaited — see openSalesController.createOpenSale
+    // for why every best-effort call site is written this way.
+    recordAudit(req, {
+      action: ACTIONS.service.create,
+      entity_type: "service",
+      entity_id: service[0].id,
+      entity_label: service[0].service_name,
+      changes: {
+        service_name: service[0].service_name,
+        price: service[0].price,
+        freebies: service[0].freebies,
+      },
+    });
   } catch (error) {
     console.error("Error adding service", error);
     res.status(500).json({ message: "Internal Server Error" });
@@ -46,6 +61,13 @@ export async function updateService(req, res) {
   try {
     const { id } = req.params;
     const { service_name, price, freebies } = req.body;
+
+    // Read first, only so the audit row can say what the values were. A
+    // manager-only path a few times a day; the till never touches it, and the
+    // UPDATE below stays the authority on whether the row exists.
+    const [before] =
+      await sql`SELECT * FROM services WHERE id = ${id} AND shop_id = ${req.shopId}`;
+
     const updated = await sql`
       UPDATE services
       SET service_name = COALESCE(${service_name}, service_name),
@@ -56,6 +78,14 @@ export async function updateService(req, res) {
     `;
     if (updated.length === 0) return res.status(404).json({ message: "Service not found" });
     res.status(200).json(updated[0]);
+
+    recordAudit(req, {
+      action: ACTIONS.service.update,
+      entity_type: "service",
+      entity_id: updated[0].id,
+      entity_label: updated[0].service_name,
+      changes: diff(before, updated[0], ["service_name", "price", "freebies"]),
+    });
   } catch (error) {
     console.error("Error updating service", error);
     res.status(500).json({ message: "Internal Server Error" });
@@ -95,6 +125,14 @@ export async function reorderServices(req, res) {
     // Return the resulting list so the client can reconcile its optimistic order.
     const services = await selectOrdered(req.shopId);
     res.status(200).json(services);
+
+    // One event for the whole reorder, never one per row.
+    recordAudit(req, {
+      action: ACTIONS.service.reorder,
+      entity_type: "service",
+      entity_label: `${orderedIds.length} services`,
+      changes: { orderedIds: orderedIds.map(Number) },
+    });
   } catch (error) {
     console.error("Error reordering services", error);
     res.status(500).json({ message: "Internal Server Error" });
@@ -108,6 +146,18 @@ export async function deleteService(req, res) {
       await sql`DELETE FROM services WHERE id = ${id} AND shop_id = ${req.shopId} RETURNING *`;
     if (deleted.length === 0) return res.status(404).json({ message: "Service not found" });
     res.status(200).json({ message: "Service deleted successfully" });
+
+    recordAudit(req, {
+      action: ACTIONS.service.delete,
+      entity_type: "service",
+      entity_id: deleted[0].id,
+      entity_label: deleted[0].service_name,
+      changes: {
+        service_name: deleted[0].service_name,
+        price: deleted[0].price,
+        freebies: deleted[0].freebies,
+      },
+    });
   } catch (error) {
     console.error("Error deleting service", error);
     res.status(500).json({ message: "Internal Server Error" });

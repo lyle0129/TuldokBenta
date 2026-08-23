@@ -1,5 +1,6 @@
 import { sql } from "../config/db.js";
 import { invalidOrderedIds } from "../utils/reorder.js";
+import { recordAudit, diff, ACTIONS } from "../utils/audit.js";
 
 /**
  * Ordering used everywhere: the admin's custom order, then label for un-numbered rows.
@@ -84,6 +85,17 @@ export async function createPaymentMethod(req, res) {
       RETURNING *
     `;
     res.status(201).json({ ...created[0], usage_count: 0 });
+
+    // After the response and unawaited — see openSalesController.createOpenSale.
+    recordAudit(req, {
+      action: ACTIONS.paymentMethod.create,
+      entity_type: "payment_method",
+      entity_id: created[0].id,
+      // The code, not the label: the code is what lands in paid_using forever,
+      // so it is the value that identifies this method a year from now.
+      entity_label: created[0].code,
+      changes: { code: created[0].code, label: created[0].label, icon: created[0].icon },
+    });
   } catch (error) {
     if (error?.code === UNIQUE_VIOLATION) {
       return res
@@ -111,6 +123,11 @@ export async function updatePaymentMethod(req, res) {
       return res.status(400).json({ message: "Label cannot be empty" });
     }
 
+    // Read first, only so the audit row can say what the values were. The
+    // UPDATE below stays the authority on whether the row exists.
+    const [before] =
+      await sql`SELECT * FROM payment_methods WHERE id = ${id} AND shop_id = ${req.shopId}`;
+
     const updated = await sql`
       UPDATE payment_methods
       SET label = COALESCE(${label !== undefined ? String(label).trim() : null}, label),
@@ -123,6 +140,14 @@ export async function updatePaymentMethod(req, res) {
       return res.status(404).json({ message: "Payment method not found" });
     }
     res.status(200).json(updated[0]);
+
+    recordAudit(req, {
+      action: ACTIONS.paymentMethod.update,
+      entity_type: "payment_method",
+      entity_id: updated[0].id,
+      entity_label: updated[0].code,
+      changes: diff(before, updated[0], ["label", "icon", "is_active"]),
+    });
   } catch (error) {
     console.error("Error updating payment method", error);
     res.status(500).json({ message: "Internal Server Error" });
@@ -162,6 +187,14 @@ export async function reorderPaymentMethods(req, res) {
     // Return the resulting list so the client can reconcile its optimistic order.
     const methods = await selectOrdered(req.shopId);
     res.status(200).json(methods);
+
+    // One event for the whole reorder, never one per row.
+    recordAudit(req, {
+      action: ACTIONS.paymentMethod.reorder,
+      entity_type: "payment_method",
+      entity_label: `${orderedIds.length} methods`,
+      changes: { orderedIds: orderedIds.map(Number) },
+    });
   } catch (error) {
     console.error("Error reordering payment methods", error);
     res.status(500).json({ message: "Internal Server Error" });
@@ -180,6 +213,17 @@ export async function deletePaymentMethod(req, res) {
       return res.status(404).json({ message: "Payment method not found" });
     }
     res.status(200).json({ message: "Payment method deleted successfully" });
+
+    // Worth a row of its own: deleting a method leaves every past sale holding
+    // its code as a bare string with nothing to resolve it against, so this is
+    // the only remaining record of what that code meant.
+    recordAudit(req, {
+      action: ACTIONS.paymentMethod.delete,
+      entity_type: "payment_method",
+      entity_id: deleted[0].id,
+      entity_label: deleted[0].code,
+      changes: { code: deleted[0].code, label: deleted[0].label, icon: deleted[0].icon },
+    });
   } catch (error) {
     console.error("Error deleting payment method", error);
     res.status(500).json({ message: "Internal Server Error" });

@@ -507,6 +507,77 @@ export async function initDB() {
       )
     `;
 
+    // ──────────────────────────── Audit ────────────────────────────
+    //
+    // Who changed what. Must stay below both blocks above: the two foreign keys
+    // point at users and shops.
+    //
+    // Both of those keys are nullable, and each for its own reason. A failed
+    // login on a username nobody owns has no actor to name, and an action like
+    // creating a shop is not performed *within* one — NULL is what "there was
+    // no such thing here" means, and inventing a row to point at would be worse.
+    await sql`
+      CREATE TABLE IF NOT EXISTS audit_log (
+        -- BIGSERIAL rather than SERIAL: this is the one table in the schema
+        -- that grows with every action rather than with the business, and a
+        -- 32-bit sequence is a ceiling nobody would remember setting.
+        id BIGSERIAL PRIMARY KEY,
+        occurred_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+        -- actor_username and actor_role are a snapshot taken at write time,
+        -- never resolved by joining users at read time. Users are deactivated
+        -- rather than deleted so a join would usually work — but "usually" is
+        -- not good enough for a log whose whole purpose is to be trusted years
+        -- later. The snapshot also captures something a join cannot: the role
+        -- someone held *when they acted*, not the role they hold now.
+        actor_user_id INT NULL REFERENCES users(id),
+        actor_username VARCHAR(50),
+        actor_role VARCHAR(20),
+
+        shop_id INT NULL REFERENCES shops(id),
+
+        -- domain.verb — see ACTIONS in utils/audit.js, which is the only place
+        -- these strings are written.
+        action VARCHAR(50) NOT NULL,
+
+        -- Deliberately NO foreign key on entity_id, for the same reason
+        -- paid_using is a plain string (see the comment above payment_methods):
+        -- a sale that has been deleted still has an audit row describing its
+        -- deletion, and a foreign key would make recording that impossible.
+        -- entity_label is what makes the row readable anyway — an invoice
+        -- number, an item name, a username — with no join and no live row.
+        entity_type VARCHAR(30),
+        entity_id INT,
+        entity_label VARCHAR(255),
+
+        -- { before, after } or a compact summary. Never a password, a hash or
+        -- a token; utils/audit.js strips those unconditionally.
+        changes JSONB,
+
+        -- 45 characters is the longest an IPv6 address can print as.
+        ip_address VARCHAR(45)
+      )
+    `;
+
+    // The three questions the read endpoint asks, in the order it asks them.
+    // occurred_at DESC leads the sort in every one of them, so it is part of
+    // each index rather than an index of its own — a range scan that then has
+    // to sort is exactly the cost this ticket exists to avoid.
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_audit_log_shop_occurred
+        ON audit_log (shop_id, occurred_at DESC)
+    `;
+
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_audit_log_actor_occurred
+        ON audit_log (actor_user_id, occurred_at DESC)
+    `;
+
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_audit_log_action_occurred
+        ON audit_log (action, occurred_at DESC)
+    `;
+
     // The bootstrap problem: creating a user requires a super admin, and there
     // is no super admin. This resolves it once, from the environment.
     //

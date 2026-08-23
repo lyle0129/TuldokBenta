@@ -14,7 +14,7 @@ import "dotenv/config";
 import { env } from "./config/env.js";
 
 import express from "express";
-import job from "./config/cron.js";
+import job, { auditRetentionJob } from "./config/cron.js";
 import { applyMiddleware } from "./middleware/index.js";
 import { requireAuth } from "./middleware/auth.js";
 import { resolveShop } from "./middleware/shopScope.js";
@@ -25,6 +25,7 @@ import openSalesRouter from "./routes/openSales.js";
 import closedSalesRouter from "./routes/closedSales.js";
 import paymentMethodsRouter from "./routes/paymentMethods.js";
 import authRouter from "./routes/auth.js";
+import adminRouter from "./routes/admin.js";
 
 const app = express();
 const PORT = env.port;
@@ -37,7 +38,19 @@ const PORT = env.port;
 // which is worse than not rate limiting at all.
 app.set("trust proxy", 1);
 
-if (env.nodeEnv === "production") job.start(); // keep-alive cron job
+if (env.nodeEnv === "production") {
+  job.start(); // keep-alive cron job
+
+  // Null unless AUDIT_RETENTION_DAYS is set. Announced on start because a job
+  // that silently deletes rows is one nobody remembers configuring.
+  if (auditRetentionJob) {
+    auditRetentionJob.start();
+    console.log(
+      `🧹 Audit retention sweep enabled: events older than ${env.auditRetentionDays} days ` +
+        "are removed daily at 03:00."
+    );
+  }
+}
 
 applyMiddleware(app);
 
@@ -63,6 +76,12 @@ app.get("/api/health", (_req, res) => res.status(200).json({ status: "ok" }));
 // The auth routes are their own gate — login and refresh cannot require a token,
 // and the rest mount requireRealAuth themselves, with no legacy bypass.
 app.use("/api/auth", authRouter);
+
+// Also its own gate, and for the same reason: it carries requireRealAuth and
+// requireRole("super_admin") at the router level, and deliberately no
+// resolveShop — a super admin acts across shops here rather than within one.
+// Ticket 06 extends this same router; there is never a second /api/admin mount.
+app.use("/api/admin", adminRouter);
 
 // Everything past this point is authenticated and scoped to one shop. requireAuth
 // and resolveShop go on the router rather than the route because every route in

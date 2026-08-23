@@ -13,9 +13,35 @@ import {
   parseInvoiceSeq,
   isInvoiceTaken,
 } from "../utils/invoiceNumber.js";
+import { recordAudit, diff, ACTIONS } from "../utils/audit.js";
 
 /** How many times to re-pick a number when a concurrent create beats us to it. */
 const INVOICE_ATTEMPTS = 5;
+
+/**
+ * What a sale looks like in the audit log: enough to recognise it, and no more.
+ *
+ * Deliberately not the `items` array. A busy shop writes thousands of these a
+ * month and the lines are already in the sale row itself — copying them into a
+ * table that grows forever and is read once a year would make the log the
+ * largest thing in the database, which is the one outcome this ticket is
+ * designed to avoid.
+ */
+const saleSummary = (sale) => {
+  const lines = Array.isArray(sale?.items) ? sale.items : [];
+  return {
+    invoice_number: sale?.invoice_number ?? null,
+    line_count: lines.length,
+    // `price` arrives as a string on service lines and a number on item lines
+    // (see webapp/.../buildSaleItems.js), so both go through Number(). Rounded
+    // to centavos because the sum of two floats is not a money value.
+    total: Number(
+      lines
+        .reduce((sum, line) => sum + Number(line?.price ?? 0) * (Number(line?.qty) || 0), 0)
+        .toFixed(2)
+    ),
+  };
+};
 
 /**
  * Applies a set of stock changes and a sale mutation as one atomic batch.
@@ -163,12 +189,27 @@ export const createOpenSale = async (req, res) => {
         ]);
 
         const created = results[results.length - 1][0];
-        return res.status(201).json({
+        res.status(201).json({
           ...created,
           requested_invoice_number: requested || null,
           invoice_reassigned:
             Boolean(requested) && created.invoice_number !== requested,
         });
+
+        // Recorded AFTER the response, and deliberately not awaited. The
+        // transaction above has already committed, so the sale is real whatever
+        // happens here — and recordAudit swallows its own failures, so this
+        // cannot reject. That ordering is the rule at every best-effort call
+        // site in this codebase: a cashier must never wait on a log, and must
+        // never see a sale fail because of one.
+        recordAudit(req, {
+          action: ACTIONS.sale.create,
+          entity_type: "open_sale",
+          entity_id: created.id,
+          entity_label: created.invoice_number,
+          changes: saleSummary(created),
+        });
+        return;
       } catch (error) {
         // The checks above are plain reads, so another create can still take the
         // number between them and this INSERT. That's a 23505 — now on the composite
@@ -236,6 +277,14 @@ export const updateOpenSale = async (req, res) => {
     const updated = results[results.length - 1];
     if (updated.length === 0) return res.status(404).json({ message: "Sale not found" });
     res.status(200).json(updated[0]);
+
+    recordAudit(req, {
+      action: ACTIONS.sale.update,
+      entity_type: "open_sale",
+      entity_id: updated[0].id,
+      entity_label: updated[0].invoice_number,
+      changes: diff(existingSale[0], updated[0], ["items", "customer_name"]),
+    });
   } catch (error) {
     fail(res, error, "Error updating open sale");
   }
@@ -260,6 +309,17 @@ export const deleteOpenSale = async (req, res) => {
       return res.status(404).json({ message: "Sale not found" });
     }
     res.status(200).json({ message: "Sale deleted successfully" });
+
+    // The summary is taken from the row we read before deleting it. There is
+    // nothing left to describe afterwards, which is exactly why audit_log has
+    // no foreign key on entity_id.
+    recordAudit(req, {
+      action: ACTIONS.sale.delete,
+      entity_type: "open_sale",
+      entity_id: sale[0].id,
+      entity_label: sale[0].invoice_number,
+      changes: saleSummary(sale[0]),
+    });
   } catch (error) {
     fail(res, error, "Error deleting open sale");
   }
@@ -298,15 +358,31 @@ export const paySale = async (req, res) => {
     // shop_id and invoice_seq are carried from the originating row rather than
     // re-derived: this is the one operation that copies a sale between tables,
     // and re-deriving either would be a chance to lose the tenant or the series.
-    await sql.transaction([
+    // RETURNING id so the audit row can name the sale by the id it has *now*.
+    // The row moves table here, and it gets a new SERIAL id on the way — an
+    // audit row saying entity_type "closed_sale" alongside the old open_sales
+    // id would point at nothing, or worse, at a different sale that later
+    // reuses the number.
+    const results = await sql.transaction([
       sql`
         INSERT INTO closed_sales (shop_id, invoice_number, invoice_seq, items, created_at, paid_at, paid_using, customer_name)
         VALUES (${s.shop_id}, ${s.invoice_number}, ${s.invoice_seq ?? null}, ${JSON.stringify(s.items)}, ${s.created_at}, ${paidAt}, ${paid_using}, ${s.customer_name ?? null})
+        RETURNING id
       `,
       sql`DELETE FROM open_sales WHERE id = ${id} AND shop_id = ${req.shopId}`,
     ]);
 
     res.status(200).json({ message: "Sale moved to closed", paid_at: paidAt, paid_using });
+
+    // entity_type is the table the sale now lives in, and entity_id is its id
+    // in that table.
+    recordAudit(req, {
+      action: ACTIONS.sale.pay,
+      entity_type: "closed_sale",
+      entity_id: results[0][0]?.id ?? null,
+      entity_label: s.invoice_number,
+      changes: { ...saleSummary(s), paid_using, paid_at: paidAt.toISOString() },
+    });
   } catch (error) {
     fail(res, error, "Error moving sale to closed");
   }
@@ -324,15 +400,29 @@ export const revertSale = async (req, res) => {
 
     // The mirror image of paySale: same reason for carrying shop_id and
     // invoice_seq across rather than re-deriving them.
-    await sql.transaction([
+    // RETURNING id for the same reason as paySale: the row moves table and
+    // takes a new id with it, so that is the id the audit row has to carry.
+    const results = await sql.transaction([
       sql`
         INSERT INTO open_sales (shop_id, invoice_number, invoice_seq, items, created_at, paid_at, paid_using, customer_name)
         VALUES (${s.shop_id}, ${s.invoice_number}, ${s.invoice_seq ?? null}, ${JSON.stringify(s.items)}, ${s.created_at}, ${null}, ${null}, ${s.customer_name ?? null})
+        RETURNING id
       `,
       sql`DELETE FROM closed_sales WHERE id = ${id} AND shop_id = ${req.shopId}`,
     ]);
 
     res.status(200).json({ message: "Sale reverted to open." });
+
+    // Worth recording carefully: reverting takes money off the books, and the
+    // permission matrix deliberately leaves it in the hands of a worker. This
+    // row is the compensating control for that decision.
+    recordAudit(req, {
+      action: ACTIONS.sale.revert,
+      entity_type: "open_sale",
+      entity_id: results[0][0]?.id ?? null,
+      entity_label: s.invoice_number,
+      changes: { ...saleSummary(s), reverted_from_paid_using: s.paid_using ?? null },
+    });
   } catch (error) {
     fail(res, error, "Error reverting sale to open");
   }
