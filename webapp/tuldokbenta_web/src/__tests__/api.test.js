@@ -130,7 +130,13 @@ describe('read hook fetch URLs', () => {
 // ---------------------------------------------------------------------------
 import { beforeEach } from 'vitest'
 import { apiRequest, ApiError } from '../api.js'
-import { clearSession, getSession, setSession } from '../utils/session.js'
+import {
+  clearSession,
+  getActiveShopId,
+  getSession,
+  setActiveShopId,
+  setSession,
+} from '../utils/session.js'
 import { clearQueryCache } from '../queryClient.js'
 
 vi.mock('../queryClient.js', async (importOriginal) => ({
@@ -231,17 +237,19 @@ describe('apiRequest — credentials on the wire', () => {
 })
 
 /**
- * The X-Shop-Id stopgap. Ticket 08 replaces the *choice* of shop with a picker,
- * but the header itself has to exist now: resolveShop's Shop 1 fallback fires
- * only for a request with no Authorization header at all, so an authenticated
- * request that omits X-Shop-Id gets 400 "No shop selected" from every scoped
- * endpoint.
+ * The X-Shop-Id header, now driven by the picker's selection rather than by
+ * ticket 07's lowest-id stopgap.
+ *
+ * The header is not optional: resolveShop's Shop 1 fallback fires only for a
+ * request with no Authorization header at all, so an authenticated request that
+ * omits X-Shop-Id gets 400 "No shop selected" from every scoped endpoint.
  */
 describe('apiRequest — the shop header', () => {
   beforeEach(() => {
     localStorage.clear()
     clearSession()
     vi.clearAllMocks()
+    vi.stubGlobal('location', { ...window.location, assign: vi.fn() })
   })
 
   afterEach(() => {
@@ -252,20 +260,25 @@ describe('apiRequest — the shop header', () => {
 
   const shopHeaderOf = (call) => call[1]?.headers?.['X-Shop-Id']
 
-  it('sends the lowest shop id, not whichever the server listed first', async () => {
-    // As the API returns them: ordered by name, so the id-2 shop sorts first.
-    setSession({
-      ...SESSION,
-      shops: [
-        { id: 2, name: 'SCRATCH SHOP B', slug: 'scratch-shop-b' },
-        { id: 1, name: 'SPINCREDIBLE', slug: 'spincredible' },
-      ],
-    })
+  it('sends the shop the picker selected', async () => {
+    setSession(SESSION)
+    setActiveShopId(4)
     const fetchMock = mockFetchByPath(() => Promise.resolve(jsonResponse(200, [])))
 
     await apiRequest('/inventory')
 
-    expect(shopHeaderOf(fetchMock.mock.calls[0])).toBe('1')
+    expect(shopHeaderOf(fetchMock.mock.calls[0])).toBe('4')
+  })
+
+  it('omits it when no shop is selected', async () => {
+    // Signed in but still on the picker. Ticket 07 would have guessed a shop
+    // from the session here; guessing is what this ticket removes.
+    setSession(SESSION)
+    const fetchMock = mockFetchByPath(() => Promise.resolve(jsonResponse(200, [])))
+
+    await apiRequest('/inventory')
+
+    expect(shopHeaderOf(fetchMock.mock.calls[0])).toBeUndefined()
   })
 
   it('omits it when signed out', async () => {
@@ -276,18 +289,9 @@ describe('apiRequest — the shop header', () => {
     expect(shopHeaderOf(fetchMock.mock.calls[0])).toBeUndefined()
   })
 
-  it('omits it for an account assigned to no shops at all', async () => {
-    // A real state: an account can exist for a day before anyone assigns it.
-    setSession({ ...SESSION, shops: [] })
-    const fetchMock = mockFetchByPath(() => Promise.resolve(jsonResponse(200, [])))
-
-    await apiRequest('/inventory')
-
-    expect(shopHeaderOf(fetchMock.mock.calls[0])).toBeUndefined()
-  })
-
   it('never sends it to the endpoints that carry a credential in the body', async () => {
     setSession(SESSION)
+    setActiveShopId(1)
     const fetchMock = mockFetchByPath(() => Promise.resolve(jsonResponse(200, {})))
 
     await apiRequest('/auth/login', { method: 'POST', body: { username: 'ada' } })
@@ -295,8 +299,38 @@ describe('apiRequest — the shop header', () => {
     expect(shopHeaderOf(fetchMock.mock.calls[0])).toBeUndefined()
   })
 
-  it('follows the session when a refresh changes the shop list', async () => {
+  it('never sends it to /auth/me, which asks who you are and not about a shop', async () => {
     setSession(SESSION)
+    setActiveShopId(1)
+    const fetchMock = mockFetchByPath(() => Promise.resolve(jsonResponse(200, {})))
+
+    await apiRequest('/auth/me')
+
+    expect(shopHeaderOf(fetchMock.mock.calls[0])).toBeUndefined()
+  })
+
+  /**
+   * The super-admin surface mounts no resolveShop at all — it takes the shop as
+   * an explicit path or body parameter instead (backend/routes/admin.js). The
+   * header would be ignored there, and sending it would read as though the route
+   * were scoped by it.
+   */
+  it('never sends it to the admin routes', async () => {
+    setSession(SESSION)
+    setActiveShopId(1)
+    const fetchMock = mockFetchByPath(() => Promise.resolve(jsonResponse(200, [])))
+
+    await apiRequest('/admin/shops')
+
+    expect(shopHeaderOf(fetchMock.mock.calls[0])).toBeUndefined()
+  })
+
+  it('keeps the selection across a refresh that rewrites the session', async () => {
+    // The selection is stored beside the session rather than inside it, so a
+    // refresh — which replaces `user` and `shops` wholesale from the server's
+    // response — cannot drop the shop the user is working in.
+    setSession(SESSION)
+    setActiveShopId(1)
 
     const fetchMock = mockFetchByPath((url, options) => {
       if (url.includes('/auth/refresh')) {
@@ -304,8 +338,7 @@ describe('apiRequest — the shop header', () => {
           jsonResponse(200, {
             accessToken: 'access-2',
             user: SESSION.user,
-            // Reassigned: shop 1 is gone, shop 5 is new.
-            shops: [{ id: 5, name: 'NEW SHOP', slug: 'new-shop' }],
+            shops: SESSION.shops,
           })
         )
       }
@@ -318,7 +351,66 @@ describe('apiRequest — the shop header', () => {
 
     await apiRequest('/inventory')
 
-    expect(shopHeaderOf(fetchMock.mock.calls.at(-1))).toBe('5')
+    expect(shopHeaderOf(fetchMock.mock.calls.at(-1))).toBe('1')
+  })
+})
+
+/**
+ * The recovery path for a shop that is no longer this user's to act on: an
+ * assignment revoked mid-session, or a stored id that went stale between two
+ * page loads. Keeping it selected would 403 every query on the page forever.
+ */
+describe('apiRequest — a 403 on the shop', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    clearSession()
+    vi.clearAllMocks()
+    vi.stubGlobal('location', { ...window.location, assign: vi.fn() })
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    clearSession()
+    localStorage.clear()
+  })
+
+  it('clears the shop and returns to the picker when the shop is not assigned', async () => {
+    setSession(SESSION)
+    setActiveShopId(9)
+    mockFetchByPath(() =>
+      Promise.resolve(
+        jsonResponse(403, { message: 'You are not assigned to that shop' })
+      )
+    )
+
+    await apiRequest('/inventory')
+
+    expect(getActiveShopId()).toBeNull()
+    expect(window.location.assign).toHaveBeenCalledWith('/select-shop')
+    // The session survives: it is the shop that went stale, not the sign-in.
+    expect(getSession()).not.toBeNull()
+  })
+
+  /**
+   * requireRole answers 403 too, and the two need opposite handling. Clearing
+   * the shop because a worker opened a manager-only page would bounce them to
+   * the picker and lose their selection over a page they were never allowed to
+   * see — while leaving the real problem unreported.
+   */
+  it('leaves the shop alone for a role refusal, which is a different 403', async () => {
+    setSession(SESSION)
+    setActiveShopId(9)
+    mockFetchByPath(() =>
+      Promise.resolve(
+        jsonResponse(403, { message: 'You do not have access to this action' })
+      )
+    )
+
+    await expect(apiRequest('/inventory')).rejects.toThrow(
+      'You do not have access to this action'
+    )
+    expect(getActiveShopId()).toBe(9)
+    expect(window.location.assign).not.toHaveBeenCalled()
   })
 })
 

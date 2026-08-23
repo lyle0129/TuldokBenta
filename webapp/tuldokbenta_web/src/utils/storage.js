@@ -32,6 +32,16 @@ export const OFFLINE_NEXT_INVOICE_KEY = "offline_next_invoice";
 export const SESSION_KEY = "tb_session";
 
 /**
+ * The shop the UI is currently acting on, as a bare numeric id.
+ *
+ * Stored beside SESSION_KEY rather than inside it on purpose. A token refresh
+ * rewrites the whole session object from the server's response — which carries
+ * `user` and `shops` but has no notion of which one is selected — so a selection
+ * kept inside it would be dropped every time the access token rolled over.
+ */
+export const ACTIVE_SHOP_KEY = "tb_active_shop";
+
+/**
  * The old admin session flag, written by the password gate this release deleted.
  *
  * Nothing writes it and nothing reads it as a credential any more. It survives

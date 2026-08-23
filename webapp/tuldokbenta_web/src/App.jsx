@@ -14,6 +14,7 @@ import ClosedSales from "./pages/ClosedSales";
 import Reporting from "./pages/Reporting";
 import Login from "./pages/Login";
 import ChangePassword from "./pages/ChangePassword";
+import SelectShop from "./pages/SelectShop";
 import RequireRole from "./components/shared/RequireRole";
 import { rolesForPath } from "./components/shared/navItems";
 import Footer from "./components/shared/Footer";
@@ -59,6 +60,10 @@ function App() {
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/change-password" element={<ChangePassword />} />
+          {/* Outside the shell for the same reason as the two above: it is
+              where a user with no shop lands, and every link in the nav leads
+              to a page that would send them straight back. */}
+          <Route path="/select-shop" element={<SelectShop />} />
 
           <Route element={<AppShell />}>
             <Route path="/" element={<Navigate to="/open-sales" replace />} />

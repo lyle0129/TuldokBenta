@@ -1,6 +1,7 @@
 // hooks/useCart.js
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { clampFreebieChoices } from "../utils/freebies";
+import { setCartDirty } from "../utils/cartDirty";
 
 /**
  * Encapsulates all cart state and mutation logic shared between
@@ -20,6 +21,20 @@ import { clampFreebieChoices } from "../utils/freebies";
  */
 export function useCart() {
   const [cart, setCart] = useState([]);
+
+  /**
+   * Publishes "there is a part-built sale" for the shop picker to read.
+   *
+   * Keyed on emptiness rather than on `cart` so it runs when the answer
+   * changes, not on every quantity tap. The cleanup clears the flag on unmount,
+   * which is what stops a cart abandoned by navigating away from making the
+   * picker prompt about a sale that no longer exists.
+   */
+  const hasLines = cart.length > 0;
+  useEffect(() => {
+    setCartDirty(hasLines);
+    return () => setCartDirty(false);
+  }, [hasLines]);
 
   const addInventoryToCart = (item) => {
     setCart((prev) => {

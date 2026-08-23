@@ -4,6 +4,7 @@ import { NavLink, useLocation } from "react-router-dom";
 import { X } from "lucide-react";
 import { lockBodyScroll } from "../../utils/bodyScrollLock";
 import { navRowClass } from "./navItems";
+import ShopPicker from "./ShopPicker";
 
 /**
  * The phone navigation, as a sheet that slides in over the page.
@@ -79,9 +80,12 @@ const NavDrawer = ({ id, open, onClose, groups, footer }) => {
         }`}
       >
         <div className="flex items-center justify-between gap-3 px-4 h-14 border-b border-gray-200 dark:border-gray-700">
-          <span className="font-bold text-blue-600 dark:text-blue-400 tracking-tight">
-            Spincredible
-          </span>
+          {/* The shop, not a wordmark. This is the only place the phone layout
+              can show which shop a sale is being rung into, and requirement 5.2
+              puts the picker in both navigations rather than desktop only. */}
+          <div className="min-w-0 flex-1">
+            <ShopPicker variant="drawer" />
+          </div>
           <button
             type="button"
             onClick={onClose}

@@ -10,7 +10,13 @@
 // token and to clear a dead session; nothing here imports api.js. That one-way
 // edge is what keeps the two out of an import cycle — see the ticket 07 design.
 
-import { LEGACY_AUTH_FLAG_KEY, SESSION_KEY, readJSON, writeJSON } from "./storage";
+import {
+  ACTIVE_SHOP_KEY,
+  LEGACY_AUTH_FLAG_KEY,
+  SESSION_KEY,
+  readJSON,
+  writeJSON,
+} from "./storage";
 
 const listeners = new Set();
 
@@ -80,6 +86,10 @@ export const clearSession = () => {
     console.error("Could not clear the session:", error);
   }
   dropLegacyFlag();
+  // Signing out drops the shop with the session. Leaving it behind would hand
+  // the next person at a shared terminal a pre-selected shop that has nothing
+  // to do with their own assignments.
+  writeActiveShop(null);
   notify();
 };
 
@@ -93,3 +103,74 @@ const notify = () => listeners.forEach((listener) => listener());
 export const getAccessToken = () => getSession()?.accessToken ?? null;
 
 export const getRole = () => getSession()?.user?.role ?? null;
+
+// ---------------------------------------------------------------------------
+// The active shop.
+//
+// Deliberately in this module rather than one of its own, and deliberately
+// sharing the listener set above. Both are read by useSyncExternalStore, and a
+// second store would mean a second subscription in every component that needs
+// both — plus two notifications for the one event that changes both, which is
+// signing out.
+// ---------------------------------------------------------------------------
+
+/**
+ * Cached the same way the session is, and for the same reason.
+ *
+ * The value here is a number, so `getSnapshot` identity would be safe even
+ * re-read from storage each time. The cache is kept anyway because the
+ * comparison also keeps this honest about storage being cleared behind our
+ * back — which the tests do between every run.
+ */
+let cachedShopRaw;
+let cachedShopId = null;
+
+/** @returns {number|null} the active shop's id, or null if none is selected */
+export const getActiveShopId = () => {
+  let raw;
+  try {
+    raw = localStorage.getItem(ACTIVE_SHOP_KEY);
+  } catch {
+    // Storage blocked (private mode, embedded webview). No selection, which
+    // routes the user to the picker rather than guessing a shop for them.
+    return null;
+  }
+
+  if (raw !== cachedShopRaw) {
+    cachedShopRaw = raw;
+    const parsed = Number(raw);
+    // A non-numeric or non-positive value reads as "nothing selected" rather
+    // than travelling on to resolveShop, which would answer 400 to every query
+    // on the page with no explanation of why.
+    cachedShopId = Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+  }
+  return cachedShopId;
+};
+
+/** Writes through to storage and seeds the cache. Pass null to clear. */
+const writeActiveShop = (shopId) => {
+  cachedShopId = shopId;
+  cachedShopRaw = shopId === null ? null : String(shopId);
+  try {
+    if (shopId === null) localStorage.removeItem(ACTIVE_SHOP_KEY);
+    else localStorage.setItem(ACTIVE_SHOP_KEY, String(shopId));
+  } catch (error) {
+    console.error("Could not store the active shop:", error);
+  }
+};
+
+/**
+ * Selects a shop.
+ *
+ * Note this does NOT clear the query cache — `setShop` in hooks/useActiveShop.js
+ * does that first, and the order matters. See the comment there.
+ */
+export const setActiveShopId = (shopId) => {
+  writeActiveShop(shopId);
+  notify();
+};
+
+export const clearActiveShop = () => {
+  writeActiveShop(null);
+  notify();
+};

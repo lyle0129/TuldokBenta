@@ -16,20 +16,41 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 /**
  * Every key in one place, so a read and its invalidation can't drift apart.
  *
- * Every closed-sales key shares the ["closedSales"] prefix on purpose: one
- * invalidation of that prefix covers every cached day and window.
+ * Every key carries the active shop's id, and every one is a function of it.
+ * Nothing in this cache is shared between shops: the entries are per-tenant
+ * rows, and the cache is persisted to localStorage for a day, so an unscoped
+ * key would serve the previous shop's inventory after a switch and restore it
+ * from disk after a reload — silently, looking exactly like ordinary staleness.
+ *
+ * The resource name stays at index 0 and the shop id goes at index 1, which is
+ * load-bearing in two places:
+ *
+ *   - shouldDehydrateQuery below filters on queryKey[0]. Prefixing with the
+ *     shop instead would stop persisting everything, and the symptom is a blank
+ *     first paint rather than an error.
+ *   - Every closed-sales key shares the ["closedSales", shopId] prefix on
+ *     purpose: one invalidation of that prefix covers every cached day and
+ *     window for the shop, and no other shop's.
  */
 export const queryKeys = {
-  inventory: ["inventory"],
-  services: ["services"],
-  paymentMethods: ["paymentMethods"],
-  openSales: ["openSales"],
-  nextInvoice: ["nextInvoice"],
-  closedSales: ["closedSales"],
-  closedSalesDay: (isoDate) => ["closedSales", "day", isoDate],
+  inventory: (shopId) => ["inventory", shopId],
+  services: (shopId) => ["services", shopId],
+  paymentMethods: (shopId) => ["paymentMethods", shopId],
+  openSales: (shopId) => ["openSales", shopId],
+  // Scoped like the rest: invoice series are allocated per shop, so two shops
+  // legitimately preview the same number at the same time.
+  nextInvoice: (shopId) => ["nextInvoice", shopId],
+  closedSales: (shopId) => ["closedSales", shopId],
+  closedSalesDay: (shopId, isoDate) => ["closedSales", shopId, "day", isoDate],
   // The report's window: everything created by `to` that was still unpaid at
   // `from`. Wider than the day view's slice, so it gets its own entry.
-  closedSalesWindow: (from, to) => ["closedSales", "window", from, to],
+  closedSalesWindow: (shopId, from, to) => [
+    "closedSales",
+    shopId,
+    "window",
+    from,
+    to,
+  ],
 };
 
 /**
@@ -66,8 +87,14 @@ const persister = createSyncStoragePersister({
   key: QUERY_CACHE_KEY,
 });
 
-/** Resources safe to restore from disk at boot, so the first paint isn't blank. */
-const PERSISTED_RESOURCES = [
+/**
+ * Resources safe to restore from disk at boot, so the first paint isn't blank.
+ *
+ * Exported so __tests__/queryKeys.test.js can check the names against the ones
+ * queryKeys actually produces at index 0. The two drifting apart is the failure
+ * that shows up as a blank first paint and nothing else.
+ */
+export const PERSISTED_RESOURCES = [
   "inventory",
   "services",
   "closedSales",

@@ -2,15 +2,20 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "../api";
 import { queryKeys, staleTimes } from "../queryClient";
+import { useActiveShopId } from "./useActiveShop";
 
 /**
  * The service list, shared by every page that mounts this hook.
  *
  * Services change rarely, so this carries the longest staleTime in the app —
- * the Open Sales catalog can be rebuilt from cache on every visit.
+ * the Open Sales catalog can be rebuilt from cache on every visit. That makes
+ * the shop dimension on the key matter more here than anywhere else: a stale
+ * unscoped entry would survive a switch for five minutes.
  */
 export const useServices = () => {
   const queryClient = useQueryClient();
+  const shopId = useActiveShopId();
+  const key = queryKeys.services(shopId);
 
   const {
     data: services = [],
@@ -18,13 +23,13 @@ export const useServices = () => {
     isFetching,
     error,
   } = useQuery({
-    queryKey: queryKeys.services,
+    queryKey: key,
     queryFn: ({ signal }) => apiRequest("/services", { signal }),
     staleTime: staleTimes.services,
+    enabled: Boolean(shopId),
   });
 
-  const invalidate = () =>
-    queryClient.invalidateQueries({ queryKey: queryKeys.services });
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: key });
 
   const createMutation = useMutation({
     mutationFn: (service) =>
@@ -52,8 +57,8 @@ export const useServices = () => {
     mutationFn: (orderedIds) =>
       apiRequest("/services/reorder", { method: "POST", body: { orderedIds } }),
     onMutate: async (orderedIds) => {
-      await queryClient.cancelQueries({ queryKey: queryKeys.services });
-      const previous = queryClient.getQueryData(queryKeys.services);
+      await queryClient.cancelQueries({ queryKey: key });
+      const previous = queryClient.getQueryData(key);
 
       if (Array.isArray(previous)) {
         const byId = new Map(previous.map((service) => [service.id, service]));
@@ -61,14 +66,14 @@ export const useServices = () => {
         // Anything the caller left out keeps its place at the end rather than
         // vanishing from the list mid-flight.
         const missing = previous.filter((s) => !orderedIds.includes(s.id));
-        queryClient.setQueryData(queryKeys.services, [...next, ...missing]);
+        queryClient.setQueryData(key, [...next, ...missing]);
       }
 
       return { previous };
     },
     onError: (_err, _orderedIds, context) => {
       if (context?.previous !== undefined) {
-        queryClient.setQueryData(queryKeys.services, context.previous);
+        queryClient.setQueryData(key, context.previous);
       }
     },
     onSettled: invalidate,

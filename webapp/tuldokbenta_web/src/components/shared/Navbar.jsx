@@ -6,9 +6,11 @@ import { apiRequest } from "../../api";
 import { clearQueryCache } from "../../queryClient";
 import { clearSession } from "../../utils/session";
 import { useAuth } from "../../hooks/useAuth";
+import { forgetShopList } from "../../hooks/useActiveShop";
 import { useDarkMode } from "../../hooks/useDarkMode";
 import NavDrawer from "./NavDrawer";
 import NavMenu from "./NavMenu";
+import ShopPicker from "./ShopPicker";
 import { navRowClass, visibleGroups } from "./navItems";
 
 const DRAWER_ID = "primary-navigation";
@@ -37,6 +39,9 @@ const Navbar = () => {
       // that the query cache is persisted, sales data would outlive the session
       // in localStorage unless it is dropped explicitly.
       clearQueryCache();
+      // clearSession drops the active shop; this drops the super admin's cached
+      // list of shops to choose from. Neither is the next cashier's business.
+      forgetShopList();
       navigate("/login", { replace: true });
     }
   };
@@ -74,18 +79,19 @@ const Navbar = () => {
     <>
       <nav className="sticky top-0 z-50 bg-white/95 dark:bg-gray-900/95 backdrop-blur border-b border-gray-200 dark:border-gray-700">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 h-14 md:h-16 flex items-center justify-between gap-3">
-          <Link to="/" className="flex items-center gap-2 flex-shrink-0">
-            <img
-              src="/Spincredible.png"
-              alt=""
-              className="h-8 w-8 rounded-md object-contain"
-            />
-            {/* The wordmark drops on the narrowest phones so the mark and the
-                hamburger never have to share a cramped row. */}
-            <span className="hidden sm:block font-bold text-lg text-blue-600 dark:text-blue-400 tracking-tight">
-              Spincredible
-            </span>
-          </Link>
+          {/* The mark links home; the shop name beside it does not, because for
+              a multi-shop user it is a control and a link wrapping a select
+              swallows the click. */}
+          <div className="flex items-center gap-2 flex-shrink-0 min-w-0">
+            <Link to="/" className="flex-shrink-0">
+              <img
+                src="/Spincredible.png"
+                alt="TuldokBenta home"
+                className="h-8 w-8 rounded-md object-contain"
+              />
+            </Link>
+            <ShopPicker />
+          </div>
 
           <div className="hidden md:flex items-center gap-1">
             {groups.map((group) =>

@@ -3,6 +3,7 @@ import { useCallback, useState } from "react";
 import { apiRequest } from "../api";
 import { readJSON, writeJSON, OFFLINE_CATALOG_KEY } from "../utils/storage";
 import { SEED_INVENTORY, SEED_SERVICES } from "../data/offlineCatalogSeed";
+import { useActiveShopId } from "./useActiveShop";
 
 /**
  * The item and service catalog the offline sales page sells from.
@@ -13,6 +14,14 @@ import { SEED_INVENTORY, SEED_SERVICES } from "../data/offlineCatalogSeed";
  *
  * Resolution order is cached snapshot, then the built-in seed — so a device
  * that has never been online can still take a sale.
+ *
+ * NOTE: OFFLINE_CATALOG_KEY is not yet namespaced per shop, so a user who
+ * switches shops still sees the previous shop's saved catalog here until the
+ * next refresh. Ticket 11 owns that key's migration — it has to move
+ * `offline_sales` at the same time, and one migration over both keys is safer
+ * than two. What this hook does now is refuse to *overwrite* the snapshot
+ * without a shop selected, so a refresh can never write one shop's catalog
+ * under another's session.
  *
  * @returns {{
  *   inventory: Array, services: Array,
@@ -35,8 +44,17 @@ export const useOfflineCatalog = () => {
 
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState(null);
+  const shopId = useActiveShopId();
 
   const refresh = useCallback(async () => {
+    // Every scoped endpoint answers 400 "No shop selected" to an authenticated
+    // request with no X-Shop-Id, so without this the button would spend a round
+    // trip to report a connection problem the user does not have.
+    if (!shopId) {
+      setError("Choose a shop before refreshing the catalog.");
+      return false;
+    }
+
     setIsRefreshing(true);
     setError(null);
     try {
@@ -66,7 +84,7 @@ export const useOfflineCatalog = () => {
     } finally {
       setIsRefreshing(false);
     }
-  }, []);
+  }, [shopId]);
 
   return {
     inventory: catalog.inventory,

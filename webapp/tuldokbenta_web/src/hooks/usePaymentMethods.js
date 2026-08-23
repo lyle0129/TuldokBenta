@@ -3,6 +3,7 @@ import { useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "../api";
 import { queryKeys, staleTimes } from "../queryClient";
+import { useActiveShopId } from "./useActiveShop";
 
 /**
  * The payment methods the pay dialog offers and the reports label sales by.
@@ -16,6 +17,8 @@ import { queryKeys, staleTimes } from "../queryClient";
  */
 export const usePaymentMethods = () => {
   const queryClient = useQueryClient();
+  const shopId = useActiveShopId();
+  const key = queryKeys.paymentMethods(shopId);
 
   const {
     data: paymentMethods = [],
@@ -23,13 +26,13 @@ export const usePaymentMethods = () => {
     isFetching,
     error,
   } = useQuery({
-    queryKey: queryKeys.paymentMethods,
+    queryKey: key,
     queryFn: ({ signal }) => apiRequest("/payment-methods", { signal }),
     staleTime: staleTimes.paymentMethods,
+    enabled: Boolean(shopId),
   });
 
-  const invalidate = () =>
-    queryClient.invalidateQueries({ queryKey: queryKeys.paymentMethods });
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: key });
 
   const createMutation = useMutation({
     mutationFn: (method) =>
@@ -61,8 +64,8 @@ export const usePaymentMethods = () => {
         body: { orderedIds },
       }),
     onMutate: async (orderedIds) => {
-      await queryClient.cancelQueries({ queryKey: queryKeys.paymentMethods });
-      const previous = queryClient.getQueryData(queryKeys.paymentMethods);
+      await queryClient.cancelQueries({ queryKey: key });
+      const previous = queryClient.getQueryData(key);
 
       if (Array.isArray(previous)) {
         const byId = new Map(previous.map((method) => [method.id, method]));
@@ -70,14 +73,14 @@ export const usePaymentMethods = () => {
         // Anything the caller left out keeps its place at the end rather than
         // vanishing from the list mid-flight.
         const missing = previous.filter((m) => !orderedIds.includes(m.id));
-        queryClient.setQueryData(queryKeys.paymentMethods, [...next, ...missing]);
+        queryClient.setQueryData(key, [...next, ...missing]);
       }
 
       return { previous };
     },
     onError: (_err, _orderedIds, context) => {
       if (context?.previous !== undefined) {
-        queryClient.setQueryData(queryKeys.paymentMethods, context.previous);
+        queryClient.setQueryData(key, context.previous);
       }
     },
     onSettled: invalidate,

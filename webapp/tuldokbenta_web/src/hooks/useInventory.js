@@ -2,6 +2,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "../api";
 import { queryKeys, staleTimes } from "../queryClient";
+import { useActiveShopId } from "./useActiveShop";
 
 /**
  * The inventory list, shared by every page that mounts this hook.
@@ -10,11 +11,17 @@ import { queryKeys, staleTimes } from "../queryClient";
  * Services → Open Sales fetched the same list three times. Now they read one
  * cache entry and the mutations below invalidate it.
  *
+ * The active shop is read here rather than taken as an argument, so that every
+ * page calling this hook is unchanged by the move to multi-shop — there is no
+ * call site that could forget to pass it.
+ *
  * Mutations keep returning true/false rather than throwing, because that is
  * what the Inventory page already branches on.
  */
 export const useInventory = () => {
   const queryClient = useQueryClient();
+  const shopId = useActiveShopId();
+  const key = queryKeys.inventory(shopId);
 
   const {
     data: inventory = [],
@@ -22,13 +29,16 @@ export const useInventory = () => {
     isFetching,
     error,
   } = useQuery({
-    queryKey: queryKeys.inventory,
+    queryKey: key,
     queryFn: ({ signal }) => apiRequest("/inventory", { signal }),
     staleTime: staleTimes.inventory,
+    // No shop, no request. Without this the query fires with `undefined` in its
+    // key and no X-Shop-Id header, takes whatever the backend answers, and
+    // caches it under a key no invalidation will ever name again.
+    enabled: Boolean(shopId),
   });
 
-  const invalidate = () =>
-    queryClient.invalidateQueries({ queryKey: queryKeys.inventory });
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: key });
 
   const createMutation = useMutation({
     mutationFn: (item) => apiRequest("/inventory", { method: "POST", body: item }),
@@ -61,8 +71,8 @@ export const useInventory = () => {
     mutationFn: (orderedIds) =>
       apiRequest("/inventory/reorder", { method: "POST", body: { orderedIds } }),
     onMutate: async (orderedIds) => {
-      await queryClient.cancelQueries({ queryKey: queryKeys.inventory });
-      const previous = queryClient.getQueryData(queryKeys.inventory);
+      await queryClient.cancelQueries({ queryKey: key });
+      const previous = queryClient.getQueryData(key);
 
       if (Array.isArray(previous)) {
         const byId = new Map(previous.map((item) => [item.id, item]));
@@ -70,14 +80,14 @@ export const useInventory = () => {
         // Anything the caller left out keeps its place at the end rather than
         // vanishing from the list mid-flight.
         const missing = previous.filter((item) => !orderedIds.includes(item.id));
-        queryClient.setQueryData(queryKeys.inventory, [...next, ...missing]);
+        queryClient.setQueryData(key, [...next, ...missing]);
       }
 
       return { previous };
     },
     onError: (_err, _orderedIds, context) => {
       if (context?.previous !== undefined) {
-        queryClient.setQueryData(queryKeys.inventory, context.previous);
+        queryClient.setQueryData(key, context.previous);
       }
     },
     onSettled: invalidate,

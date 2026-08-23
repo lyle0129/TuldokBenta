@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "../api";
 import { queryKeys, staleTimes } from "../queryClient";
 import { dayRange, rangeBounds } from "../utils/dateRange";
+import { useActiveShopId } from "./useActiveShop";
 
 /**
  * Sales reads, split by what each page actually renders.
@@ -10,14 +11,20 @@ import { dayRange, rangeBounds } from "../utils/dateRange";
  * The single useSales() this replaced fetched open sales, the whole closed-sales
  * table and today's closed sales together on every call, so pages paid for lists
  * they never showed — and every mutation re-ran all three.
+ *
+ * Each hook reads the active shop itself. Every page call site is therefore
+ * unchanged by multi-shop, and no call site can forget the shop.
  */
 
 /** Open sales. Read by the Open Sales page and Reporting. */
 export const useOpenSales = () => {
+  const shopId = useActiveShopId();
+
   const { data, isLoading, isFetching, error } = useQuery({
-    queryKey: queryKeys.openSales,
+    queryKey: queryKeys.openSales(shopId),
     queryFn: ({ signal }) => apiRequest("/open-sales", { signal }),
     staleTime: staleTimes.sales,
+    enabled: Boolean(shopId),
   });
 
   return {
@@ -41,10 +48,17 @@ export const useOpenSales = () => {
  * rejected — see createOpenSale in the controller.
  */
 export const useNextInvoice = () => {
+  const shopId = useActiveShopId();
+
   const { data, isLoading, error } = useQuery({
-    queryKey: queryKeys.nextInvoice,
+    // Scoped like every other key, and load-bearing here rather than merely
+    // consistent: invoice series run per shop, so two shops previewing the same
+    // number at the same time is correct, and one shop showing the other's
+    // preview would put a duplicate-looking number in front of a cashier.
+    queryKey: queryKeys.nextInvoice(shopId),
     queryFn: ({ signal }) => apiRequest("/next-invoice", { signal }),
     staleTime: staleTimes.sales,
+    enabled: Boolean(shopId),
   });
 
   return {
@@ -69,8 +83,10 @@ export const useNextInvoice = () => {
  * @param {string} isoDate "YYYY-MM-DD"
  */
 export const useClosedSalesForDay = (isoDate) => {
+  const shopId = useActiveShopId();
+
   const { data, isLoading, isFetching, error } = useQuery({
-    queryKey: queryKeys.closedSalesDay(isoDate),
+    queryKey: queryKeys.closedSalesDay(shopId, isoDate),
     queryFn: ({ signal }) => {
       const { lowdate, highdate } = dayRange(isoDate);
       return apiRequest(
@@ -79,7 +95,7 @@ export const useClosedSalesForDay = (isoDate) => {
       );
     },
     staleTime: staleTimes.sales,
-    enabled: Boolean(isoDate),
+    enabled: Boolean(isoDate && shopId),
   });
 
   return {
@@ -116,8 +132,10 @@ export const useClosedSalesForDay = (isoDate) => {
  * @param {string} to   "YYYY-MM-DD", inclusive
  */
 export const useClosedSalesWindow = (from, to) => {
+  const shopId = useActiveShopId();
+
   const { data, isLoading, isFetching, error } = useQuery({
-    queryKey: queryKeys.closedSalesWindow(from, to),
+    queryKey: queryKeys.closedSalesWindow(shopId, from, to),
     queryFn: ({ signal }) => {
       const { lowdate, highdate } = rangeBounds(from, to);
       return apiRequest(
@@ -126,7 +144,7 @@ export const useClosedSalesWindow = (from, to) => {
       );
     },
     staleTime: staleTimes.sales,
-    enabled: Boolean(from && to),
+    enabled: Boolean(from && to && shopId),
   });
 
   return {
@@ -152,6 +170,11 @@ export const useClosedSalesWindow = (from, to) => {
  */
 export const useSaleMutations = () => {
   const queryClient = useQueryClient();
+  // The same shop the reads above are keyed by. An invalidation naming a
+  // different shop than the query it is meant to clear would leave the list on
+  // screen untouched after a sale — which is precisely the bug the one-place
+  // queryKeys map exists to make impossible.
+  const shopId = useActiveShopId();
 
   const invalidate = (keys) =>
     Promise.all(
@@ -161,11 +184,15 @@ export const useSaleMutations = () => {
   // nextInvoice rides along: opening a sale consumes a number, and deleting the
   // newest one frees it again, so the cart's preview has to move with both.
   const openSalesAndStock = () =>
-    invalidate([queryKeys.openSales, queryKeys.inventory, queryKeys.nextInvoice]);
+    invalidate([
+      queryKeys.openSales(shopId),
+      queryKeys.inventory(shopId),
+      queryKeys.nextInvoice(shopId),
+    ]);
 
   /** Moves a row between open and closed; stock was settled when it opened. */
   const bothSaleTables = () =>
-    invalidate([queryKeys.openSales, queryKeys.closedSales]);
+    invalidate([queryKeys.openSales(shopId), queryKeys.closedSales(shopId)]);
 
   const run = async (mutation, args, fallbackMessage) => {
     try {
@@ -217,13 +244,14 @@ export const useSaleMutations = () => {
   const updateClosedMutation = useMutation({
     mutationFn: ({ id, patch }) =>
       apiRequest(`/closed-sales/${id}`, { method: "PUT", body: patch }),
-    onSuccess: () => invalidate([queryKeys.closedSales]),
+    onSuccess: () => invalidate([queryKeys.closedSales(shopId)]),
   });
 
   const deleteClosedMutation = useMutation({
     mutationFn: (id) => apiRequest(`/closed-sales/${id}`, { method: "DELETE" }),
     // nextInvoice too: deleting the highest-numbered sale on file frees that number.
-    onSuccess: () => invalidate([queryKeys.closedSales, queryKeys.nextInvoice]),
+    onSuccess: () =>
+      invalidate([queryKeys.closedSales(shopId), queryKeys.nextInvoice(shopId)]),
   });
 
   return {

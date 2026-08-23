@@ -1,5 +1,11 @@
 import { clearQueryCache } from "./queryClient";
-import { clearSession, getSession, setSession } from "./utils/session";
+import {
+  clearActiveShop,
+  clearSession,
+  getActiveShopId,
+  getSession,
+  setSession,
+} from "./utils/session";
 
 export const API_BASE_URL =
   import.meta.env.VITE_API_URL ?? "http://localhost:5001/api";
@@ -57,25 +63,30 @@ const isCredentialPath = (path) =>
 const isAuthPath = (path) => path.startsWith("/auth/");
 
 /**
- * Which shop a request acts on. TICKET 08 REPLACES THIS WITH THE PICKER.
+ * The paths that must not carry X-Shop-Id.
  *
- * A stopgap, and worth explaining because ticket 07's requirements claim it is
- * unnecessary: "the frontend sends no X-Shop-Id header, and the backend's legacy
- * fallback supplies Shop 1". That is not what the backend does. resolveShop's
- * fallback is guarded on `req.user.legacy` — the synthetic actor built only when
- * a request arrives with NO Authorization header — and ticket 04 narrowed it
- * there deliberately, so that an authenticated request which forgot the header
- * gets a 400 rather than silently acting on shop 1. Correct, and it means the
- * moment this ticket starts sending a token, every scoped endpoint answers
- * `400 No shop selected` until a shop is named.
+ * /auth/* identifies the person, not a shop, and two of its endpoints are how a
+ * session begins — there is no shop to name yet.
  *
- * The lowest id rather than `shops[0]`: the list arrives ordered by name, so
- * first-in-the-array is alphabetical and arbitrary. The lowest id is the shop
- * that existed first — Shop 1, the real one — which is what someone signing in
- * during the rollout expects to be looking at.
+ * /admin/* is the super-admin surface, and it mounts no resolveShop at all: a
+ * super admin acts across shops there, and every route takes its subject as an
+ * explicit path or body parameter instead (see backend/routes/admin.js). Sending
+ * the header would be harmless and misleading — it would read as though the
+ * route were scoped by it.
  */
-const activeShopId = (session) =>
-  session?.shops?.length ? Math.min(...session.shops.map((shop) => shop.id)) : null;
+const isShopExemptPath = (path) =>
+  path.startsWith("/auth/") || path.startsWith("/admin/");
+
+/**
+ * The 403 that means the stored shop is no longer this user's to act on.
+ *
+ * Matched on the server's own wording (middleware/shopScope.js) because 403 is
+ * also what requireRole answers, and those two need opposite handling: a role
+ * refusal is a page the user may not see and clearing their shop would not help,
+ * while this one is recoverable by choosing a different shop.
+ */
+const isUnassignedShopMessage = (message) =>
+  message === "You are not assigned to that shop" || message === "Shop not found";
 
 /**
  * One refresh, however many requests hit 401 at once.
@@ -145,7 +156,7 @@ export const apiRequest = async (
   { method = "GET", body, signal, _retry = false } = {}
 ) => {
   const session = isCredentialPath(path) ? null : getSession();
-  const shopId = activeShopId(session);
+  const shopId = isShopExemptPath(path) ? null : getActiveShopId();
 
   let res;
   try {
@@ -193,10 +204,26 @@ export const apiRequest = async (
   }
 
   if (!res.ok) {
-    throw new ApiError(
-      await messageFrom(res, `Request failed (${res.status})`),
-      res.status
-    );
+    const message = await messageFrom(res, `Request failed (${res.status})`);
+
+    // The shop this request named is not one this user may act on any more.
+    // Keeping it selected would 403 every query on the page forever, so drop it
+    // and send them back to the picker — the same shape as the 401 path above,
+    // and for the same reason: apiRequest is called from hooks and mutations
+    // with no router context, and a full reload is the cleanest way to drop
+    // in-memory state alongside the cleared cache.
+    //
+    // clearActiveShop rather than the picker's setShop: importing hooks from
+    // here would close the api -> session import edge into a cycle, which is
+    // exactly what utils/session.js is factored to avoid.
+    if (res.status === 403 && shopId && isUnassignedShopMessage(message)) {
+      clearActiveShop();
+      clearQueryCache();
+      window.location.assign("/select-shop");
+      return null;
+    }
+
+    throw new ApiError(message, res.status);
   }
 
   if (res.status === 204) return null;
