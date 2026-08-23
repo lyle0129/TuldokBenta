@@ -3,8 +3,10 @@ import { printInvoice } from "../../utils/printInvoice";
 import EditSaleModal from "../sales-modals/EditSaleModal";
 import PaySaleModal from "../sales-modals/PaySaleModal";
 import DeleteSaleModal from "../sales-modals/DeleteSaleModal";
+import CorrectDatesModal from "../admin/CorrectDatesModal";
 import SearchInput from "../shared/SearchInput";
 import Pagination from "../shared/Pagination";
+import { useAuth } from "../../hooks/useAuth";
 import { filterSales } from "../../utils/filterSales";
 import { isFreeLine } from "../../utils/buildSaleItems";
 import { formatCurrency, formatDateTime, saleTotal } from "../../utils/format";
@@ -28,6 +30,12 @@ const ListSales = ({
   const [editingSale, setEditingSale] = useState(null);
   const [payingSale, setPayingSale] = useState(null);
   const [deletingSale, setDeletingSale] = useState(null);
+  const [correctingSale, setCorrectingSale] = useState(null);
+
+  // Super admin only, like the closed-sales list: moving a sale's date changes
+  // what past reports say, and /api/admin refuses everyone else anyway.
+  const session = useAuth();
+  const isSuperAdmin = session?.user?.role === "super_admin";
 
   const [editError, setEditError] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -197,6 +205,19 @@ const ListSales = ({
                       Print
                     </button>
 
+                    {/* An open sale offers created_at only: paySale moves the
+                        row into closed_sales rather than stamping paid_at, so
+                        the column is NULL for every legitimately open row. */}
+                    {isSuperAdmin && (
+                      <button
+                        type="button"
+                        onClick={() => setCorrectingSale(sale)}
+                        className={rowActionClass(rowActionAccents.yellow)}
+                      >
+                        Fix date
+                      </button>
+                    )}
+
                     <button
                       type="button"
                       onClick={() => setDeletingSale(sale)}
@@ -249,6 +270,13 @@ const ListSales = ({
           await deleteOpenSale(deletingSale.id);
           setDeletingSale(null);
         }}
+      />
+
+      {/* Date Correction */}
+      <CorrectDatesModal
+        table="open"
+        sale={correctingSale}
+        onClose={() => setCorrectingSale(null)}
       />
 
       {/* ✅ SUCCESS MODAL */}

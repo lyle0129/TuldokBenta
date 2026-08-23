@@ -16,11 +16,17 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 /**
  * Every key in one place, so a read and its invalidation can't drift apart.
  *
- * Every key carries the active shop's id, and every one is a function of it.
- * Nothing in this cache is shared between shops: the entries are per-tenant
- * rows, and the cache is persisted to localStorage for a day, so an unscoped
- * key would serve the previous shop's inventory after a switch and restore it
- * from disk after a reload — silently, looking exactly like ordinary staleness.
+ * Every *shop-scoped* key carries the active shop's id, and every one is a
+ * function of it. Nothing in this cache is shared between shops: the entries
+ * are per-tenant rows, and the cache is persisted to localStorage for a day, so
+ * an unscoped key would serve the previous shop's inventory after a switch and
+ * restore it from disk after a reload — silently, looking exactly like ordinary
+ * staleness.
+ *
+ * The three admin keys at the bottom are the deliberate exception, and they are
+ * grouped apart so the exception is visible rather than discovered. Those
+ * screens act ACROSS shops — api.js sends no X-Shop-Id for /admin/* at all — so
+ * a shop dimension on them would be a lie, and none of them is persisted.
  *
  * The resource name stays at index 0 and the shop id goes at index 1, which is
  * load-bearing in two places:
@@ -51,6 +57,19 @@ export const queryKeys = {
     from,
     to,
   ],
+
+  // ── The super-admin console: global, never persisted ──
+  adminShops: () => ["adminShops"],
+  adminUsers: () => ["adminUsers"],
+  /**
+   * One page of the audit log, keyed by the filters that produced it.
+   *
+   * The filter object includes the cursor, so each page of a walk is its own
+   * entry and "Load more" appends rather than replacing. Paired with the short
+   * gcTime in useAuditLog, so paging a long range does not accumulate every
+   * page in memory for a day.
+   */
+  auditLog: (filters) => ["auditLog", filters],
 };
 
 /**
@@ -102,6 +121,18 @@ export const PERSISTED_RESOURCES = [
   // first fetch lands, which is the one moment a cashier cannot wait.
   "paymentMethods",
 ];
+
+/**
+ * The keys that carry no shop, because their screens act across shops.
+ *
+ * Exported for the structural test that none of them is persisted. That matters
+ * most for `auditLog`: writing a page of an unbounded, append-only log to
+ * localStorage for 24 hours is exactly the cost the endpoint's whole design —
+ * mandatory range, capped page, keyset cursor — exists to avoid. It is simply
+ * correct for the other two, which are read rarely and must never be stale when
+ * someone is granting or revoking access.
+ */
+export const GLOBAL_RESOURCES = ["adminShops", "adminUsers", "auditLog"];
 
 export const persistOptions = {
   persister,

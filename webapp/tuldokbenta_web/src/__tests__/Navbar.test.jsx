@@ -87,23 +87,28 @@ describe("sections follow the role", () => {
     expect(screen.getByRole("button", { name: /Sales/ })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Manage/ })).toBeNull();
     expect(screen.queryByRole("link", { name: "Reporting" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Admin/ })).toBeNull();
   });
 
-  it("gives a manager all three groups", () => {
+  it("gives a manager everything but the console", () => {
     signIn(ROLES.MANAGER);
     renderAt();
 
     expect(screen.getByRole("button", { name: /Sales/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Manage/ })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Reporting" })).toBeInTheDocument();
+    // The console is the one group a manager must not see, and unlike Reporting
+    // that is a control: every route under it is refused by the server too.
+    expect(screen.queryByRole("button", { name: /Admin/ })).toBeNull();
   });
 
-  it("gives a super admin all three groups", () => {
+  it("gives a super admin the console as well", () => {
     signIn(ROLES.SUPER_ADMIN);
     renderAt();
 
     expect(screen.getByRole("button", { name: /Manage/ })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Reporting" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Admin/ })).toBeInTheDocument();
   });
 
   it("reveals them the moment a session is established, without a remount", () => {

@@ -2,8 +2,10 @@ import React, { useState, useEffect, useMemo } from "react";
 import { printInvoice } from "../../utils/printInvoice";
 import Pagination from "../shared/Pagination";
 import EditClosedSaleModal from "../sales-modals/EditClosedSaleModal";
+import CorrectDatesModal from "../admin/CorrectDatesModal";
 import { isFreeLine } from "../../utils/buildSaleItems";
 import { formatCurrency, formatDateTime, saleTotal } from "../../utils/format";
+import { useAuth } from "../../hooks/useAuth";
 import { usePaymentMethods } from "../../hooks/usePaymentMethods";
 import { buildMethodLookup, resolveMethod } from "../../utils/paymentMethods";
 import {
@@ -23,6 +25,13 @@ const ListClosedSales = ({
 }) => {
   const [currentPage, setCurrentPage] = useState(1);
   const [editingSale, setEditingSale] = useState(null);
+  const [correctingSale, setCorrectingSale] = useState(null);
+
+  // The date correction is the one action here that rewrites history, so it is
+  // offered to a super admin only — and the server refuses it for anyone else
+  // regardless, since /api/admin sits behind requireRole("super_admin").
+  const session = useAuth();
+  const isSuperAdmin = session?.user?.role === "super_admin";
 
   // Rows store the method code; this turns it back into the admin's label.
   const { paymentMethods } = usePaymentMethods();
@@ -121,6 +130,16 @@ const ListClosedSales = ({
               {/* NOTE: no Delete here — reverting stock for a sale deleted at
                   this stage isn't handled yet. */}
 
+              {isSuperAdmin && (
+                <button
+                  type="button"
+                  onClick={() => setCorrectingSale(sale)}
+                  className={rowActionClass(rowActionAccents.red)}
+                >
+                  Fix dates
+                </button>
+              )}
+
               <button
                 type="button"
                 onClick={() => printInvoice(sale)}
@@ -145,6 +164,14 @@ const ListClosedSales = ({
         sale={editingSale}
         onClose={() => setEditingSale(null)}
         onSave={(patch) => updateClosedSale(editingSale.id, patch)}
+      />
+
+      {/* Invalidates for the SALE's shop, which need not be the active one —
+          the admin routes reach every shop. */}
+      <CorrectDatesModal
+        table="closed"
+        sale={correctingSale}
+        onClose={() => setCorrectingSale(null)}
       />
     </div>
   );

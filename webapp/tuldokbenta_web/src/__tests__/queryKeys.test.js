@@ -13,7 +13,7 @@
  */
 import { describe, it, expect } from "vitest";
 import fc from "fast-check";
-import { queryKeys, PERSISTED_RESOURCES } from "../queryClient";
+import { queryKeys, PERSISTED_RESOURCES, GLOBAL_RESOURCES } from "../queryClient";
 
 /** A plausible shop id: whole, positive, and small the way real ids are. */
 const shopId = () => fc.integer({ min: 1, max: 10_000 });
@@ -42,6 +42,22 @@ const applyAll = (shop, day, from, to) => [
   ["closedSalesWindow", queryKeys.closedSalesWindow(shop, from, to)],
 ];
 
+/**
+ * The keys that deliberately carry NO shop, added by ticket 10.
+ *
+ * The console acts across shops — api.js sends no X-Shop-Id for /admin/*, and
+ * the backend's admin router mounts no resolveShop — so a shop dimension on
+ * these would describe a scoping that does not exist. They are listed
+ * separately rather than exempted inside applyAll so that P1 and P2 keep
+ * meaning "every shop-scoped key", and so a new key must be filed as one or the
+ * other before the coverage test below will pass.
+ */
+const applyGlobal = () => [
+  ["adminShops", queryKeys.adminShops()],
+  ["adminUsers", queryKeys.adminUsers()],
+  ["auditLog", queryKeys.auditLog({ from: "2026-01-01", to: "2026-01-02" })],
+];
+
 describe("P1 — every key carries the shop", () => {
   it("includes the shop id in every key it produces", () => {
     fc.assert(
@@ -54,12 +70,15 @@ describe("P1 — every key carries the shop", () => {
   });
 
   it("covers every key queryKeys exports", () => {
-    // Guards the hand-written list above. Without this, adding a key to
+    // Guards the two hand-written lists above. Without this, adding a key to
     // queryClient.js and forgetting it here would leave it unchecked by P1–P4 —
-    // and an unscoped key is exactly what these properties exist to catch.
-    const checked = applyAll(1, "2026-01-01", "2026-01-01", "2026-01-31").map(
-      ([name]) => name
-    );
+    // and an unscoped key is exactly what these properties exist to catch. A new
+    // key has to be filed as shop-scoped or global before this passes, which is
+    // the moment to decide which it is.
+    const checked = [
+      ...applyAll(1, "2026-01-01", "2026-01-01", "2026-01-31"),
+      ...applyGlobal(),
+    ].map(([name]) => name);
     expect(checked.sort()).toEqual(Object.keys(queryKeys).sort());
   });
 });
@@ -117,6 +136,26 @@ describe("P3 — closed-sales keys share a prefix", () => {
         );
       })
     );
+  });
+});
+
+describe("ticket 10 P3 — admin data is never persisted", () => {
+  it("keeps every global resource out of PERSISTED_RESOURCES", () => {
+    // Required for the audit log by Requirement 4.8: writing a page of an
+    // unbounded, append-only log to localStorage for 24 hours is exactly the
+    // cost the endpoint's mandatory range and capped page size exist to avoid.
+    // It is simply correct for the other two, which must never be stale when
+    // someone is granting or revoking access.
+    for (const resource of GLOBAL_RESOURCES) {
+      expect(PERSISTED_RESOURCES, resource).not.toContain(resource);
+    }
+  });
+
+  it("names every global resource at index 0 of its key", () => {
+    // The persister filters on queryKey[0]. This is what makes the assertion
+    // above load-bearing rather than a statement about two unrelated lists.
+    const heads = applyGlobal().map(([, key]) => key[0]);
+    expect(heads.sort()).toEqual([...GLOBAL_RESOURCES].sort());
   });
 });
 

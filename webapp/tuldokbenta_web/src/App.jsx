@@ -15,6 +15,9 @@ import Reporting from "./pages/Reporting";
 import Login from "./pages/Login";
 import ChangePassword from "./pages/ChangePassword";
 import SelectShop from "./pages/SelectShop";
+import AdminShops from "./pages/AdminShops";
+import AdminUsers from "./pages/AdminUsers";
+import AdminAudit from "./pages/AdminAudit";
 import RequireRole from "./components/shared/RequireRole";
 import { rolesForPath } from "./components/shared/navItems";
 import Footer from "./components/shared/Footer";
@@ -74,6 +77,13 @@ function App() {
             {guarded("/services", <Services />)}
             {guarded("/payment-methods", <PaymentMethods />)}
             {guarded("/reporting", <Reporting />)}
+
+            {/* The console. Guarded by the same rolesForPath lookup as every
+                route above — the Admin group in navItems.js is what makes
+                these super-admin-only, on both the nav and the router. */}
+            {guarded("/admin/shops", <AdminShops />)}
+            {guarded("/admin/users", <AdminUsers />)}
+            {guarded("/admin/audit", <AdminAudit />)}
           </Route>
         </Routes>
       </Router>

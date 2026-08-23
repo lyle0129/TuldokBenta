@@ -4,7 +4,10 @@ import {
   CheckCircle2,
   CreditCard,
   Package,
+  ScrollText,
   ShoppingCart,
+  Store,
+  Users,
   WifiOff,
   Wrench,
 } from "lucide-react";
@@ -18,6 +21,7 @@ export const ROLES = {
 
 const ALL = [ROLES.WORKER, ROLES.MANAGER, ROLES.SUPER_ADMIN];
 const MANAGERS = [ROLES.MANAGER, ROLES.SUPER_ADMIN];
+const SUPER = [ROLES.SUPER_ADMIN];
 
 /**
  * Every destination in the navbar, in one place, with who may reach it.
@@ -69,6 +73,23 @@ export const NAV_GROUPS = [
     label: "Reporting",
     roles: MANAGERS,
     items: [{ to: "/reporting", label: "Reporting", icon: BarChart3 }],
+  },
+  {
+    // The console. Unlike Reporting above, this group's roles ARE a control:
+    // every route below sits on /api/admin, which mounts requireRealAuth and
+    // requireRole("super_admin") at the router level, so a manager following a
+    // bookmark here is refused by the server as well as by RequireRole.
+    //
+    // These screens act across shops and deliberately send no X-Shop-Id —
+    // api.js exempts /admin/* from the header entirely.
+    id: "admin",
+    label: "Admin",
+    roles: SUPER,
+    items: [
+      { to: "/admin/shops", label: "Shops", icon: Store },
+      { to: "/admin/users", label: "Users", icon: Users },
+      { to: "/admin/audit", label: "Audit Log", icon: ScrollText },
+    ],
   },
 ];
 

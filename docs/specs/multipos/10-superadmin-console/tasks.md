@@ -8,7 +8,7 @@ template, and following it keeps the Console from becoming a second design langu
 
 ## Tasks
 
-- [ ] 1. Add the Admin nav group and routes
+- [x] 1. Add the Admin nav group and routes
   - New group in `navItems.js` with `roles: ["super_admin"]`, containing Shops, Users and Audit
   - `App.jsx` picks up the guards automatically via `rolesForPath` from ticket 07
   - Create `src/components/admin/` as a sibling of the existing feature folders
@@ -19,7 +19,7 @@ template, and following it keeps the Console from becoming a second design langu
     the Console does not become a second design language inside the app
   - _Requirements: 1.1, 1.2, 1.3, 6.1, 6.2, 6.3_
 
-- [ ] 2. Add the admin query keys
+- [x] 2. Add the admin query keys
   - `adminShops`, `adminUsers` and `auditLog(filters)` in `queryClient.js`
   - **No shop dimension** — these screens act across shops and ticket 08 deliberately omits
     `X-Shop-Id` for `/admin/*`
@@ -28,14 +28,14 @@ template, and following it keeps the Console from becoming a second design langu
     access
   - _Requirements: 1.4, 4.8_
 
-- [ ] 3. Build the shops screen
+- [x] 3. Build the shops screen
   - `pages/AdminShops.jsx` with `ShopsList`, `AddShopModal`, `EditShopModal`
   - `slug` read-only when editing; no delete action anywhere
   - On create, state that the shop starts with default payment methods and an empty catalog
   - Surface the API's `invoice_prefix` warning before saving
   - _Requirements: 2.1–2.7_
 
-- [ ] 4. Build the users screen
+- [x] 4. Build the users screen
   - `pages/AdminUsers.jsx` with `UsersList`, `AddUserModal`, `EditUserModal`,
     `AssignShopsModal`, `ResetPasswordModal`
   - `username` read-only when editing
@@ -46,13 +46,13 @@ template, and following it keeps the Console from becoming a second design langu
   - Never render a password hash
   - _Requirements: 3.1–3.9_
 
-- [ ] 5. Add the one-time password display
+- [x] 5. Add the one-time password display
   - Show an initial or reset password once in the modal, with an explicit note that it will not
     be shown again
   - If offering to generate one, use `crypto.getRandomValues`, never `Math.random`
   - _Requirements: 3.10_
 
-- [ ] 6. Build the audit filter and query layer
+- [x] 6. Build the audit filter and query layer
   - Extract the filter-to-query-string builder as a **pure function** so P1 and P2 are testable
     without rendering
   - `useAuditLog` with `enabled: Boolean(filters.from && filters.to)` — Requirement 4.1 becomes
@@ -64,7 +64,7 @@ template, and following it keeps the Console from becoming a second design langu
   - Do not prefetch the next page
   - _Requirements: 4.1, 4.2, 4.3, 4.7_
 
-- [ ] 7. Build the audit viewer UI
+- [x] 7. Build the audit viewer UI
   - `AuditFilters` populates its action dropdown from the API's distinct-actions response for
     the selected range, not from a constant — a hardcoded list drifts and would offer actions
     that never occurred in the range
@@ -75,7 +75,7 @@ template, and following it keeps the Console from becoming a second design langu
   - Say "No activity in this range." plainly when empty
   - _Requirements: 4.4, 4.5, 4.9_
 
-- [ ] 8. Build `AuditChangeSummary.jsx`
+- [x] 8. Build `AuditChangeSummary.jsx`
   - Render `{ before, after }` as readable lines (`Stock  12 → 20`), and compact create
     summaries as a single line
   - Fall back to a formatted JSON block for an unrecognised shape, so an unfamiliar action
@@ -84,7 +84,7 @@ template, and following it keeps the Console from becoming a second design langu
   - Extract the summarising logic as a pure function for P4
   - _Requirements: 4.6_
 
-- [ ] 9. Build `CorrectDatesModal.jsx`
+- [x] 9. Build `CorrectDatesModal.jsx`
   - Reachable from the closed-sales and open-sales row menus, **not only** from the Console —
     the question arises while looking at sales, and making the admin navigate away invites them
     to do it in the database instead
@@ -97,7 +97,7 @@ template, and following it keeps the Console from becoming a second design langu
     sale's shop**, which may not be the active one
   - _Requirements: 5.1–5.7_
 
-- [ ] 10. Write the tests
+- [x] 10. Write the tests
   - P1 and P2 against the pure filter builder; P4 against the pure summariser, including
     `null`, `{}` and a deeply nested payload
   - P3 as a structural assertion that none of the three admin resources appears in
@@ -106,12 +106,21 @@ template, and following it keeps the Console from becoming a second design langu
   - _Requirements: 4.1, 4.2, 4.3, 4.6, 4.8_
 
 - [ ] 11. Verification checkpoint
-  - `npm run build`, `npm test` and `npm run lint` pass
-  - Walk the manual table from the design end to end, including creating a shop, switching into
-    it without signing out, creating a worker for it, and watching that worker sign in
-  - **Reload the audit page and confirm `tb_query_cache` in `localStorage` holds no audit
+  - [x] `npm run build`, `npm test` and `npm run lint` pass — 451 tests, and the only two lint
+    errors left are pre-existing ones in `useCart.test.js`
+  - [x] Every endpoint the console calls, rehearsed against the Neon branch with a locally
+    minted super-admin token: the three list reads and their field shapes, shop creation
+    (seeded with cash and gcash), the duplicate-slug 409, the `invoice_prefix` warning, user
+    creation, all three refusals, both date-correction rejections, the open-sale `paid_at`
+    refusal, the table allowlist, and a two-page cursor walk with no overlap and no gap
+  - [x] The console's own `buildAuditParams` output accepted by the live endpoint, with the
+    local-day-to-UTC conversion landing on the right rows
+  - [ ] Walk the manual table from the design end to end in a browser, including creating a
+    shop, switching into it without signing out, creating a worker for it, and watching that
+    worker sign in
+  - [ ] **Reload the audit page and confirm `tb_query_cache` in `localStorage` holds no audit
     data** — this is the check that P3 holds in the built app and not merely in the constant
-  - Confirm dark mode and phone layout on all three screens
+  - [ ] Confirm dark mode and phone layout on all three screens
   - Ask the user if any questions arise before closing out
 
 ## Notes

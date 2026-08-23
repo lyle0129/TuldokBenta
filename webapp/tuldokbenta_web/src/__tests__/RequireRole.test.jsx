@@ -163,10 +163,14 @@ describe("P2 — rolesForPath agrees with the nav groups", () => {
       "manage",
       "report",
     ]);
+    // The console is the super admin's alone — the only group in the nav whose
+    // roles are a control rather than a convenience, since every route under it
+    // sits behind requireRole("super_admin") on the server too.
     expect(visibleGroups(ROLES.SUPER_ADMIN).map((g) => g.id)).toEqual([
       "sales",
       "manage",
       "report",
+      "admin",
     ]);
     expect(visibleGroups(null)).toEqual([]);
   });
