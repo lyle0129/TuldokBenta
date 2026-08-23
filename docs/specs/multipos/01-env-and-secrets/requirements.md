@@ -89,8 +89,13 @@ forge.
 7. THE Config_Module SHALL default `ACCESS_TOKEN_TTL` to `"60m"` and `REFRESH_TOKEN_TTL` to
    `"30d"` when they are not set.
 8. THE Config_Module SHALL default `LEGACY_SHOP_ID` to `1`.
-9. THE Config_Module SHALL be imported after `dotenv.config()` has run, preserving the
-   existing import ordering discipline in `backend/server.js`.
+9. THE Config_Module SHALL be imported after `.env` has been loaded and before any module
+   that reads configuration, preserving the existing import ordering discipline in
+   `backend/server.js`. Because ES module imports are all evaluated before the importing
+   module's own statements, `backend/server.js` SHALL load dotenv by side-effect import
+   (`import "dotenv/config"`) rather than by calling `dotenv.config()`.
+10. THE Config_Module SHALL NOT import dotenv itself, so that it validates exactly the
+    environment it is given.
 
 ---
 

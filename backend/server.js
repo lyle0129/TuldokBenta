@@ -3,8 +3,15 @@
 // assignment is what guarantees it happens before the DB driver loads.
 import "./config/timezone.js";
 
-import dotenv from "dotenv";
-dotenv.config();
+// A side-effect import for the same reason as the line above: a `dotenv.config()`
+// call here would be a statement, and statements run only after every import in
+// this file has already been evaluated — including config/env.js, which would
+// then validate against an environment .env had not been read into yet.
+import "dotenv/config";
+
+// Then env.js, which validates as it is evaluated. Keeping it above the routers
+// means a missing secret is reported before initDB touches the schema.
+import { env } from "./config/env.js";
 
 import express from "express";
 import job from "./config/cron.js";
@@ -17,9 +24,9 @@ import closedSalesRouter from "./routes/closedSales.js";
 import paymentMethodsRouter from "./routes/paymentMethods.js";
 
 const app = express();
-const PORT = process.env.PORT || 5001;
+const PORT = env.port;
 
-if (process.env.NODE_ENV === "production") job.start(); // keep-alive cron job
+if (env.nodeEnv === "production") job.start(); // keep-alive cron job
 
 applyMiddleware(app);
 

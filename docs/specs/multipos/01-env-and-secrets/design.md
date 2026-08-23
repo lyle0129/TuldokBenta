@@ -27,15 +27,30 @@ backend/
 ```
 
 `server.js` already has a deliberate import ordering discipline — `config/timezone.js` is
-imported first so `TZ` is pinned before the Neon driver loads, then `dotenv.config()` runs.
-`config/env.js` slots in immediately after `dotenv.config()` and before any module that
-needs configuration.
+imported first so `TZ` is pinned before the Neon driver loads. `config/env.js` slots in
+before any module that needs configuration, but *after* `.env` has been read.
+
+Getting that second part right requires one change to how `server.js` loads dotenv. **Every
+`import` in a module is evaluated before any statement in that module's body**, so the
+existing
 
 ```js
-import "./config/timezone.js";        // unchanged — must stay first
 import dotenv from "dotenv";
-dotenv.config();
+dotenv.config();          // ← a statement: runs LAST, after every import below
+import { env } from "./config/env.js";
+```
 
+would evaluate `env.js` — and therefore validate — against an environment `.env` had not
+been read into yet, and the server would refuse to boot with its secrets sitting in
+`backend/.env`. (Nothing today exposes this, because `config/db.js` carries its own
+`import "dotenv/config"` and so self-loads.)
+
+The fix is the side-effect import, exactly the pattern `timezone.js` already uses — imports
+are evaluated in source order, so this genuinely runs first:
+
+```js
+import "./config/timezone.js";         // unchanged — must stay first
+import "dotenv/config";                // CHANGED — side effect, not a statement
 import { env } from "./config/env.js"; // NEW — validates or exits
 import express from "express";
 // ...
