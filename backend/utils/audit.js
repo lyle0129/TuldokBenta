@@ -73,11 +73,21 @@ export const ACTIONS = Object.freeze({
     reactivate: "user.reactivate",
     passwordReset: "user.password_reset",
     shopsChanged: "user.shops_changed",
+    // The hard delete, which ticket 06 allows only for an account that never
+    // acted. Rare by construction, and recorded for the same reason a payment
+    // method's deletion is: once the row is gone, this is the only place the
+    // account is named. entity_id points at a row that no longer exists, which
+    // is exactly why audit_log has no foreign key on that column.
+    delete: "user.delete",
   }),
   shop: Object.freeze({
     create: "shop.create",
     update: "shop.update",
     deactivate: "shop.deactivate",
+    // The pair to deactivate, added in ticket 06 alongside the route that emits
+    // it. Filing a reactivation as shop.update would hide it from anyone
+    // filtering for the deactivation it undoes.
+    reactivate: "shop.reactivate",
   }),
 });
 
@@ -258,6 +268,26 @@ export const makeRecordAudit = (sql) => {
       );
     }
   };
+};
+
+/**
+ * How many events this account has ever been the actor of.
+ *
+ * The one read outside controllers/auditController.js, and it lives here rather
+ * than at its caller on purpose. Ticket 06's hard delete has to know whether an
+ * account ever acted — but "no query names audit_log outside this module" is the
+ * structural check that keeps the read discipline in auditController meaningful,
+ * and a raw `SELECT COUNT(*) FROM audit_log` in a user controller would be the
+ * first crack in it.
+ *
+ * Cheap despite the table's size: idx_audit_log_actor_occurred leads on
+ * actor_user_id, and the answer for a user being deleted is almost always 0.
+ */
+export const countActorEvents = async (userId) => {
+  const [row] = await sql`
+    SELECT COUNT(*)::int AS count FROM audit_log WHERE actor_user_id = ${userId}
+  `;
+  return row?.count ?? 0;
 };
 
 export const auditQuery = makeAuditQuery(sql);

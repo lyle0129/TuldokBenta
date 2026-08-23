@@ -13,6 +13,7 @@ import {
 } from "../utils/tokens.js";
 import { toErrorResponse } from "../utils/saleItems.js";
 import { recordAudit, ACTIONS } from "../utils/audit.js";
+import { toPublicUser } from "../utils/users.js";
 
 /**
  * One 401 for a wrong password, an unknown username and a deactivated account
@@ -27,24 +28,6 @@ const LOGIN_REFUSED = "Incorrect username or password";
 
 /** Same reasoning, for the refresh endpoint's several failure modes. */
 const SESSION_EXPIRED = "Session expired. Sign in again.";
-
-/**
- * The one user shape any response is allowed to contain.
- *
- * Everything user-shaped goes through here so that `password_hash` and
- * `token_version` cannot leak — including from a `SELECT *`, which is how they
- * would leak, and including from a column added to `users` next year by someone
- * who never reads this file.
- */
-const toPublicUser = (row) => ({
-  id: row.id,
-  username: row.username,
-  full_name: row.full_name,
-  role: row.role,
-  is_active: row.is_active,
-  must_change_password: row.must_change_password,
-  last_login_at: row.last_login_at,
-});
 
 /**
  * The shops an actor may act on, as the shop picker will render them.

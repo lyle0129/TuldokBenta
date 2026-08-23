@@ -305,9 +305,18 @@ signature changes and the guarantee must survive the change.
 ### Structural property SP1 — no controller reads scope from the request
 
 ```powershell
-rg -n "req\.(body|query|params)\.(shop_id|shopId)" backend/
+rg -n "req\.(body|query|params)\.(shop_id|shopId)" backend/ | rg -v "controllers/admin"
 ```
 returns nothing.
+
+Narrowed in ticket 06, not weakened. The `/api/admin` controllers are the one documented
+exception to this rule: they take the shop as an explicit parameter and mount no
+`resolveShop`, because a super admin acting across shops is the entire point of that surface,
+and the router-level `requireRole("super_admin")` means the parameter only ever selects among
+shops the caller already reaches. See
+[06-superadmin-api/design.md](../06-superadmin-api/design.md) — "The deliberate
+exception to the scoping rule". The rule itself is unchanged everywhere else, which is why the
+check is narrowed rather than deleted.
 
 *Validates: 3.4*
 
