@@ -25,9 +25,14 @@ backend/
 │   ├── passwords.js        ← NEW: bcrypt hash/compare + policy
 │   └── passwords.test.js   ← NEW
 ├── middleware/
-│   ├── index.js            ← + rate limiter registration only
-│   ├── auth.js             ← NEW: requireAuth, requireRole
-│   └── shopScope.js        ← NEW: resolveShop
+│   ├── index.js            ← unchanged; the limiter lives in routes/auth.js
+│   ├── auth.js             ← NEW: requireRealAuth, requireAuth, requireRole
+│   ├── auth.test.js        ← NEW (flag off)
+│   ├── auth.legacy.test.js ← NEW (flag on — P6)
+│   ├── shopScope.js        ← NEW: resolveShop
+│   ├── shopScope.test.js   ← NEW (flag off)
+│   ├── shopScope.legacy.test.js ← NEW (flag on)
+│   └── httpDoubles.js      ← NEW: test-only req/res stand-ins
 ├── controllers/
 │   └── authController.js   ← NEW
 ├── routes/
@@ -147,6 +152,12 @@ call in `try`.
 
 ### `utils/passwords.js`
 
+`bcryptjs`, not the native `bcrypt` — the fallback the tasks already anticipate. Pure
+JavaScript, so there is no node-gyp step to fail on the deploy host or on a Windows dev
+machine; the API and the cost-factor argument are identical, so nothing else changes. It is
+slower per hash (~100ms at cost 10 rather than ~60ms), which is irrelevant at a shop's login
+volume and is arguably a feature on a login endpoint.
+
 ```js
 export const hashPassword   = (plain) => bcrypt.hash(plain, 10);
 export const verifyPassword = (plain, hash) => bcrypt.compare(plain, hash);
@@ -219,6 +230,19 @@ the token-verification logic exists once.
 
 ### `middleware/shopScope.js`
 
+Exported through a factory rather than as a bare middleware:
+
+```js
+export const makeResolveShop = (sql) => async (req, res, next) => { /* … */ };
+export const resolveShop = makeResolveShop(sql);   // what ticket 04 imports
+```
+
+The super-admin branch below is the one branch in either middleware that touches the
+database, and the Testing Strategy asks for it to be covered. ESM has no clean way to
+substitute a module-level import, so `sql` comes in as a parameter — the same shape
+`utils/invoiceNumber.js` already uses, and for the same reason. Ticket 04's
+`import { resolveShop }` is unaffected.
+
 ```js
 export const resolveShop = async (req, res, next) => {
   const raw = req.header("x-shop-id");
@@ -256,7 +280,7 @@ super admins, who are not the ones running the till.
 |---|---|---|
 | `login` | `POST /api/auth/login` | Normalises username; compares against `DUMMY_HASH` when the account is missing; 401 with one generic message for wrong password, unknown user and inactive account alike |
 | `refresh` | `POST /api/auth/refresh` | Re-reads the user; rejects on inactive or `tv` mismatch; returns a fresh access token with freshly-read role and shops |
-| `me` | `GET /api/auth/me` | `requireRealAuth`; returns public user + shops |
+| `me` | `GET /api/auth/me` | `requireRealAuth`; re-reads the user and returns public user + shops. Deliberately not answered from the token: this is what the frontend calls on boot to decide whether a stored session is still good, and the token would happily confirm a session for an account deactivated an hour ago |
 | `logout` | `POST /api/auth/logout` | `requireRealAuth`; server-side it is a no-op that exists so ticket 05 has somewhere to record the event |
 | `changePassword` | `POST /api/auth/change-password` | `requireRealAuth`; verifies the current password, applies the policy, hashes, clears `must_change_password`, bumps `token_version` |
 
@@ -277,7 +301,14 @@ app.use("/api/auth", authRouter);
 ```
 
 Every existing `app.use` line is untouched. Nothing else in `server.js` changes except the
-legacy-mode startup warning.
+legacy-mode startup warning and one `app.set("trust proxy", 1)`.
+
+**`trust proxy` is required for the rate limiter to mean anything.** `express-rate-limit`
+buckets by `req.ip`, and a hosted deploy sits behind a load balancer — without this, every
+request arrives wearing the balancer's address and the entire internet shares one attempt
+budget. It is `1` rather than `true` on purpose: trusting the whole forwarded chain lets a
+client set its own `X-Forwarded-For` and hop to a fresh bucket per guess, which is worse than
+not rate limiting at all.
 
 ### Rate limiting
 
@@ -287,6 +318,13 @@ not in `applyMiddleware`, which must keep serving the till at full speed.
 A window of 15 minutes and a cap of 20 attempts per IP is far above a shop's real usage (a
 shift change is a handful of logins) and far below a useful brute-force rate. Successful
 logins are not counted against the limit, so a busy legitimate terminal never trips it.
+
+**One limiter instance each, not one shared between the two routes.** A whole shop sits
+behind a single public IP, so a shared bucket would let one tab looping on an invalidated
+refresh token — which answers 401 every time, and which a client retries with nobody
+watching — spend the budget that signing in needs and lock the counter out for fifteen
+minutes. Two buckets keep a broken session from becoming a shop-wide outage. Verified: each
+route allows exactly 20 failures independently of the other.
 
 ---
 
@@ -305,6 +343,7 @@ logins are not counted against the limit, so a busy legitimate terminal never tr
 | `resolveShop` with an unassigned shop | 403 | `{ message: "You are not assigned to that shop" }` |
 | Change password with a wrong current password | 401 | `{ message: "Current password is incorrect" }` |
 | New password under 8 characters | 400 | `{ message: "Password must be at least 8 characters" }` |
+| New password equal to the current one | 400 | `{ message: "New password must be different" }` — otherwise `must_change_password` clears while the burned password stays in force, which is the one thing the flag exists to prevent |
 | Seed credentials missing and `users` empty | — | Warning logged, boot continues |
 
 The single 401 message across unknown-user, wrong-password and inactive-account is
@@ -370,17 +409,44 @@ authentication bypass, and it is cheap to assert exhaustively.
 Backend tests use Node's built-in runner (`node --test`), matching `backend/utils/*.test.js`.
 `fast-check` is already a dependency of the frontend; add it to the backend for P1–P6.
 
+Two harness facts shape every file below.
+
+**`config/env.js` validates at import time and calls `process.exit`,** and it deliberately
+does not read `.env`. A test that statically imports anything reaching `env.js` therefore
+kills the runner on any machine whose shell does not export the secrets. Each test file sets
+what it needs on `process.env` first and then reaches the module under test through a dynamic
+`await import(...)`. `dotenv` never overrides an already-set variable, so a real `backend/.env`
+cannot leak into a case through `config/db.js` either.
+
+**`env` freezes `legacyUnauth` at import,** so a single process can only ever observe one
+value of it. `node --test` runs each *file* in its own child process, which makes a file split
+the whole harness — hence the `.legacy.test.js` pairs below. `httpDoubles.js` holds the shared
+`req`/`res` stand-ins; it is deliberately not named `*.test.js`, or the runner would treat it
+as a suite and register the same tests three times over.
+
 ### Unit and property tests
 
-- `utils/tokens.test.js` — P1, P2, P3, plus expiry: a token signed with a TTL of `-1s` fails
-  verification.
+- `utils/tokens.test.js` — P1, P2, P3, plus expiry (a token signed with a TTL of `-1s`), a
+  forged key, an `alg: none` token, and junk of every shape returning `null` rather than
+  throwing.
 - `utils/passwords.test.js` — P4, P5, plus the policy rejecting 7 characters and accepting 8.
-- `middleware/auth.test.js` — P6, plus: valid token sets `req.user`; missing token 401s with
-  the flag off; missing token yields the legacy actor with the flag on; `requireRole` allows
-  a listed role and 403s an unlisted one.
-- `middleware/shopScope.test.js` — assigned shop resolves; unassigned shop 403s; missing
-  header 400s; non-numeric header 400s; super admin resolves an active shop and is refused an
-  inactive one.
+  P5's case-folding half is asserted over printable ASCII on purpose: it is genuinely false
+  over all of Unicode, because `"ß".toUpperCase()` is `"SS"`, which lowercases to `"ss"`
+  rather than back. Usernames here are ASCII, so that is the range worth asserting over.
+- `middleware/auth.test.js` (flag off) — valid token sets `req.user`; missing token 401s;
+  `requireRole` allows a listed role, 403s an unlisted one, and 403s when there is no actor.
+- `middleware/auth.legacy.test.js` (flag on) — **P6**, plus: a missing header does yield the
+  legacy actor; a valid token is still honoured; `requireRealAuth` 401s on a missing header
+  even with the flag on.
+- `middleware/shopScope.test.js` (flag off) — assigned shop resolves; unassigned 403s; a
+  table of malformed headers 400s; super admin resolves an active shop and is refused an
+  inactive one; a non-super-admin never queries the database.
+- `middleware/shopScope.legacy.test.js` (flag on) — the fallback fires for the synthetic
+  actor, and an authenticated request that forgot its header still 400s.
+
+P6 was checked against a deliberately inverted guard — written as
+`env.legacyUnauth && !payload`, both of its cases fail — so the property is known to be
+load-bearing rather than merely green.
 
 ### Integration checks
 

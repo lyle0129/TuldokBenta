@@ -1,4 +1,55 @@
 import { sql } from "../config/db.js";
+import { env } from "./env.js";
+import { hashPassword, normalizeUsername } from "../utils/passwords.js";
+
+/**
+ * Creates the very first super admin, once, from the environment.
+ *
+ * Called from initDB() so a failure here exits the process along with every
+ * other DDL failure — a backend with an empty users table and a silently
+ * swallowed seed error is a backend nobody can ever sign in to.
+ *
+ * The password is hashed before it is written and is never logged, not even at
+ * a debug level: a deploy log is a place secrets get read out of long after
+ * anyone remembers putting them there. The username is logged, because an
+ * operator needs to know which name to sign in with.
+ */
+async function seedFirstSuperAdmin() {
+  const [{ count }] = await sql`SELECT COUNT(*)::int AS count FROM users`;
+  if (count > 0) return;
+
+  const username = normalizeUsername(env.seedSuperadminUsername);
+  const password = env.seedSuperadminPassword;
+
+  if (!username || !password) {
+    // Not fatal. A first boot against a fresh database is exactly when the
+    // variables are most likely to be missing, and refusing to start would
+    // make that unrecoverable without a database client.
+    console.warn(
+      "⚠️  No users exist and no super admin was seeded. Set SEED_SUPERADMIN_USERNAME " +
+        "and SEED_SUPERADMIN_PASSWORD and restart, or nobody will be able to sign in."
+    );
+    return;
+  }
+
+  await sql`
+    INSERT INTO users (username, password_hash, full_name, role, must_change_password)
+    VALUES (
+      ${username},
+      ${await hashPassword(password)},
+      ${String(env.seedSuperadminUsername).trim()},
+      'super_admin',
+      TRUE
+    )
+  `;
+
+  // must_change_password is TRUE above because this password has travelled
+  // through an environment panel and very likely a chat message to get here.
+  console.log(
+    `✅ Seeded the first super admin: ${username}. ` +
+      "Sign in, change the password immediately, then unset both SEED_SUPERADMIN_ variables."
+  );
+}
 
 export async function initDB() {
   try {
@@ -389,6 +440,77 @@ export async function initDB() {
     // Dropped last, after its replacement exists, so there is never a boot
     // during which paid_using has no index at all.
     await sql`DROP INDEX IF EXISTS idx_closed_sales_paid_using`;
+
+    // ────────────────────────── Identity ──────────────────────────
+    //
+    // Who is asking. Until this block there was no notion of a person anywhere
+    // in the system: every endpoint was open, and the only thing resembling
+    // auth was a shared password compared in the browser.
+    //
+    // Nothing *enforces* any of this yet. The middlewares that read these
+    // tables are written in this ticket but mounted on nothing except the new
+    // /api/auth routes, so the existing frontend keeps working untouched.
+    // Ticket 04 is what makes a token mandatory.
+    //
+    // Must stay below the tenancy block: user_shops has a foreign key into
+    // shops, and shops is created up there.
+
+    // `username` is stored lowercased — see normalizeUsername in
+    // utils/passwords.js for why the UNIQUE constraint alone is not enough.
+    //
+    // Deactivation rather than deletion is the removal path, hence is_active:
+    // a deleted user would take their audit trail's foreign key with them, and
+    // ticket 05 needs every past action to still name who performed it.
+    //
+    // created_by references this same table and is NULL for the seeded account
+    // below, which by definition had nobody to create it.
+    await sql`
+      CREATE TABLE IF NOT EXISTS users (
+        id SERIAL PRIMARY KEY,
+        username VARCHAR(50) UNIQUE NOT NULL,
+        password_hash TEXT NOT NULL,
+        full_name VARCHAR(255) NOT NULL,
+        role VARCHAR(20) NOT NULL
+          CHECK (role IN ('super_admin', 'manager', 'worker')),
+        is_active BOOLEAN NOT NULL DEFAULT TRUE,
+        must_change_password BOOLEAN NOT NULL DEFAULT FALSE,
+        token_version INT NOT NULL DEFAULT 0,
+        last_login_at TIMESTAMP NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        created_by INT REFERENCES users(id)
+      )
+    `;
+
+    // Which shops a user may act on. The composite primary key is the whole
+    // table — there is no surrogate id, because nothing ever needs to reference
+    // an assignment by one.
+    //
+    // Both foreign keys cascade: an assignment is meaningless once either side
+    // is gone, and leaving orphans would put shops in a user's picker that they
+    // cannot open. Note this is the delete path, which for users is not the
+    // normal one — is_active above is.
+    //
+    // A super_admin's access is *not* recorded here. They reach every active
+    // shop, which resolveShop resolves against the shops table directly so a
+    // newly created shop is reachable without re-issuing anyone's token.
+    await sql`
+      CREATE TABLE IF NOT EXISTS user_shops (
+        user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        shop_id INT NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (user_id, shop_id)
+      )
+    `;
+
+    // The bootstrap problem: creating a user requires a super admin, and there
+    // is no super admin. This resolves it once, from the environment.
+    //
+    // Guarded on the table being *empty*, not on the username not existing —
+    // same reasoning as the shops and payment_methods seeds above. Once a real
+    // account exists, leaving the seed variables set on the host must not
+    // recreate a way in, and an admin who deliberately deleted the seeded
+    // account must not find it back after the next restart.
+    await seedFirstSuperAdmin();
 
     console.log("✅ Database initialized successfully");
   } catch (error) {
