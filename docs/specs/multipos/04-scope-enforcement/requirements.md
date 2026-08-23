@@ -92,6 +92,9 @@ completely invisible to the other, so that stock, sales and prices never cross.
    outer and the inner side.
 8. WHEN a request names an `id` that exists but belongs to another shop, THE controller SHALL
    respond 404, not 403 — the row's existence is not the requester's business.
+9. ONCE every INSERT sets `shop_id` explicitly, THE DB_Init SHALL drop the temporary `shop_id`
+   column defaults added by ticket 02 (its Requirements 3.8 and 3.9), so that a statement which
+   omits its shop fails loudly instead of silently landing in the first shop.
 
 ---
 

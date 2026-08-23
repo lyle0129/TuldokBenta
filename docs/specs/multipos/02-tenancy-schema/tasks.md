@@ -19,7 +19,7 @@ server booting. See the Migration Approach section of [design.md](design.md).
   - Do **not** run any of this against production until task 10 passes
   - _Requirements: 7.4_
 
-- [ ] 2. Add a section header comment in `initDB.js`
+- [x] 2. Add a section header comment in `initDB.js`
   - Append a clearly delimited `--- Multi-shop tenancy ---` comment block after the existing
     `payment_methods` seed, explaining that everything below adds shop scoping, that nothing
     reads it yet, and that the statement order below is load-bearing
@@ -27,14 +27,14 @@ server booting. See the Migration Approach section of [design.md](design.md).
     for every non-obvious statement, and that convention is worth keeping
   - _Requirements: 7.1_
 
-- [ ] 3. Create the `shops` table
+- [x] 3. Create the `shops` table
   - `CREATE TABLE IF NOT EXISTS shops (...)` with the eleven columns from the design's Data
     Models section
   - Comment `slug` to explain it is the stable key while `name` is editable, referencing the
     same reasoning already written for `payment_methods.code` vs `label` at `initDB.js:106-109`
   - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5_
 
-- [ ] 4. Seed the first shop
+- [x] 4. Seed the first shop
   - `INSERT ... SELECT ... WHERE NOT EXISTS (SELECT 1 FROM shops)`
   - Values verbatim from `webapp/tuldokbenta_web/src/utils/printInvoice.js:120-132`:
     `SPINCREDIBLE`, `spincredible`, `Rizal Street Ext`, `Mo: 0962-683-7430`, the
@@ -43,18 +43,22 @@ server booting. See the Migration Approach section of [design.md](design.md).
     existing note at `initDB.js:133-135`
   - _Requirements: 2.1, 2.2, 2.3, 2.4_
 
-- [ ] 5. Add and backfill `shop_id` on all five scoped tables
+- [x] 5. Add and backfill `shop_id` on all five scoped tables
   - For each of `inventory`, `services`, `payment_methods`, `open_sales`, `closed_sales`,
-    emit the four statements in this exact order:
+    emit the five statements in this exact order:
     `ADD COLUMN IF NOT EXISTS shop_id INT` → `UPDATE ... WHERE shop_id IS NULL` →
-    `ALTER COLUMN shop_id SET NOT NULL` → FK add inside a `duplicate_object` guard
-  - Resolve the target with `(SELECT id FROM shops ORDER BY id LIMIT 1)` — never a literal `1`
-  - Do **not** use `ADD COLUMN ... NOT NULL DEFAULT 1`: it hardcodes the id and leaves a
-    permanent default that would silently absorb an insert missing its `shop_id`, which is
-    exactly the class of bug ticket 04 exists to prevent
-  - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 3.7_
+    `SET DEFAULT <first shop id>` inside a `DO` block → `ALTER COLUMN shop_id SET NOT NULL` →
+    FK add inside a `duplicate_object` guard
+  - Resolve the target with `(SELECT id FROM shops ORDER BY id LIMIT 1)` — never a literal `1`.
+    The default needs the same value, and a column default cannot hold a subquery, so the `DO`
+    block reads it into a variable and `format()`s it in
+  - The default is **temporary** and ticket 04 drops it. It exists because no INSERT passes
+    `shop_id` until then; see the design's *The temporary default*
+  - Do **not** use `ADD COLUMN ... NOT NULL DEFAULT 1`: it hardcodes the id, and the column has
+    to be backfilled before it can be constrained anyway
+  - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 3.7, 3.8, 3.9_
 
-- [ ] 6. Swap the five global UNIQUE constraints for composite ones
+- [x] 6. Swap the five global UNIQUE constraints for composite ones
   - For each table: `DROP CONSTRAINT IF EXISTS <table>_<column>_key`, then add the composite
     constraint inside a `DO $$ ... EXCEPTION WHEN duplicate_object THEN NULL; END $$` guard,
     matching the idiom at `initDB.js:54-59`
@@ -63,7 +67,7 @@ server booting. See the Migration Approach section of [design.md](design.md).
   - These statements must come **after** task 5 completes for the same table
   - _Requirements: 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 4.7_
 
-- [ ] 7. Add and backfill `invoice_seq`
+- [x] 7. Add and backfill `invoice_seq`
   - `ADD COLUMN IF NOT EXISTS invoice_seq INT` on `open_sales` and `closed_sales`
   - Backfill both with `(substring(invoice_number from '^INV-([0-9]+)$'))::int`, guarded on
     `WHERE invoice_seq IS NULL`
@@ -72,11 +76,13 @@ server booting. See the Migration Approach section of [design.md](design.md).
     `backend/utils/invoiceNumber.js:39-41`
   - _Requirements: 5.1, 5.2, 5.3, 5.4, 5.5_
 
-- [ ] 8. Add the shop-scoped indexes
+- [x] 8. Add the shop-scoped indexes
   - Four `CREATE INDEX IF NOT EXISTS` statements per the design's Step 6
   - `DROP INDEX IF EXISTS idx_closed_sales_paid_using` **last**, after its replacement exists,
     so there is never a window without an index on that column
-  - _Requirements: 6.1, 6.2, 6.3, 6.4, 6.5_
+  - Delete the statement at `initDB.js:124-127` that creates that index, or it is created and
+    dropped again on every boot. Move its comment onto the new `(shop_id, paid_using)` index
+  - _Requirements: 6.1, 6.2, 6.3, 6.4, 6.5, 6.6_
 
 - [ ] 9. Verify the structural properties against the production copy
   - Start the backend against the copy; confirm `✅ Database initialized successfully` and
@@ -88,8 +94,9 @@ server booting. See the Migration Approach section of [design.md](design.md).
     silently and only surfaces when the second shop cannot be created
   - Run SP4: the five new constraint names return exactly five rows
   - Run SP6: no well-formed `invoice_number` was left without an `invoice_seq`
+  - Run SP7: all five `shop_id` columns carry the temporary default
   - Restart the server and re-run SP1–SP4 for SP5 (idempotence)
-  - _Requirements: 3.6, 4.6, 5.2, 7.4_
+  - _Requirements: 3.6, 3.8, 4.6, 5.2, 7.4_
 
 - [ ] 10. Regression-check the API with the unmodified frontend
   - Point the existing frontend at the backend running against the copy
@@ -115,5 +122,8 @@ server booting. See the Migration Approach section of [design.md](design.md).
 - No rollback path is specified because none is needed: every change is additive, and the
   pre-upgrade backend runs unmodified against the post-upgrade schema. See the design's
   Rollback section for the one asymmetry.
+- The pre-upgrade backend only keeps working because of the temporary `shop_id` default. It is
+  ticket 04's job to remove it, and ticket 04's job alone — dropping it earlier stops the
+  deployed app from writing anything at all.
 - Ticket 04 is what starts *reading* `shop_id`. Nothing in this ticket makes the API
   multi-tenant; it only makes it possible.

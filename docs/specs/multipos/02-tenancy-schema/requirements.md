@@ -98,6 +98,13 @@ data leak.
    complete without error and SHALL modify no rows.
 7. THE column addition, backfill and NOT NULL constraint for a given table SHALL execute in
    that order within the same boot.
+8. BEFORE setting `shop_id` to NOT NULL, THE DB_Init SHALL set a **temporary** column default
+   on `shop_id` resolved from the first shop's `id`, because no INSERT in the codebase passes
+   `shop_id` until ticket 04 — without it, Requirement 3.4 would stop every sale, item,
+   service and payment method from being created the moment this ticket deploys, and would
+   break the `payment_methods` seed, contradicting Requirements 7.2 and 7.3.
+9. THE temporary default SHALL be resolved from the `shops` table rather than written as a
+   literal, and SHALL be dropped by ticket 04 once every INSERT names its own `shop_id`.
 
 ---
 
@@ -161,6 +168,9 @@ write, so that adding a shop predicate does not quietly turn every list into a t
 4. THE DB_Init SHALL replace the existing `idx_closed_sales_paid_using` index with one on
    `closed_sales (shop_id, paid_using)`.
 5. EVERY index SHALL be created with `IF NOT EXISTS`.
+6. THE DB_Init SHALL remove the statement that creates `idx_closed_sales_paid_using`. Leaving
+   it in place while also dropping the index would create and drop that index on every single
+   boot.
 
 ---
 

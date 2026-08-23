@@ -29,12 +29,14 @@ backend/config/initDB.js
   ├── [existing] CREATE TABLE open_sales / closed_sales / inventory / services
   ├── [existing] stock CHECK constraint, sort_order columns + backfills
   ├── [existing] customer_name columns
-  ├── [existing] CREATE TABLE payment_methods, idx_closed_sales_paid_using, seed
+  ├── [existing] CREATE TABLE payment_methods, seed
+  │              (the idx_closed_sales_paid_using creation is REMOVED — step 6 replaces it)
   │
   └── [NEW] ─── Tenancy block, appended after all existing statements ───
         1. CREATE TABLE shops
         2. Seed the first shop (guarded on empty)
-        3. For each of 5 tables: ADD COLUMN shop_id → backfill → SET NOT NULL → ADD FK
+        3. For each of 5 tables:
+           ADD COLUMN shop_id → backfill → SET DEFAULT (temporary) → SET NOT NULL → ADD FK
         4. For each of 5 tables: DROP old UNIQUE → ADD composite UNIQUE
         5. invoice_seq columns + parse backfill
         6. Indexes
@@ -52,7 +54,8 @@ graph TD
   A[CREATE TABLE shops] --> B[Seed first shop if empty]
   B --> C[ADD COLUMN shop_id, nullable]
   C --> D[UPDATE ... WHERE shop_id IS NULL]
-  D --> E[ALTER COLUMN shop_id SET NOT NULL]
+  D --> D2[ALTER COLUMN shop_id SET DEFAULT — temporary]
+  D2 --> E[ALTER COLUMN shop_id SET NOT NULL]
   E --> F[ADD FOREIGN KEY]
   E --> G[DROP old UNIQUE / ADD composite UNIQUE]
   D --> H[invoice_seq backfill]
@@ -61,6 +64,8 @@ graph TD
 
 - **B before C** — the backfill in D needs a shop to point at. On an empty database the seed
   still runs, so a fresh install and an upgrade take the same path.
+- **D2 before E** — see *The temporary default* below. Setting it first means a boot that
+  fails partway never leaves a NOT NULL column that nothing can insert into.
 - **D before E** — `SET NOT NULL` scans the table and fails on any remaining NULL. That
   failure exits the process, so the backend would not boot.
 - **E before G** — the composite UNIQUE includes `shop_id`. Adding it while NULLs remain
@@ -167,6 +172,14 @@ UPDATE inventory
    SET shop_id = (SELECT id FROM shops ORDER BY id LIMIT 1)
  WHERE shop_id IS NULL;
 
+-- Temporary; removed in ticket 04. See below.
+DO $$
+DECLARE first_shop INT;
+BEGIN
+  SELECT id INTO first_shop FROM shops ORDER BY id LIMIT 1;
+  EXECUTE format('ALTER TABLE inventory ALTER COLUMN shop_id SET DEFAULT %s', first_shop);
+END $$;
+
 ALTER TABLE inventory ALTER COLUMN shop_id SET NOT NULL;
 
 DO $$ BEGIN
@@ -179,9 +192,32 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 re-run. `WHERE shop_id IS NULL` means the second boot updates zero rows — the same guard the
 `sort_order` backfill uses at `initDB.js:75`.
 
-> **Do not collapse this into `ADD COLUMN … NOT NULL DEFAULT 1`.** It would hardcode the id,
-> and it would attach a permanent column default that silently absorbs a future insert that
-> forgot its `shop_id` — exactly the bug ticket 04's whole review pass is meant to catch.
+#### The temporary default
+
+`SET NOT NULL` alone would break the app on deploy. **Not one INSERT in the codebase passes
+`shop_id`** — `openSalesController.js:137`, `:267`, `:290`, `inventoryController.js:73`,
+`servicesController.js:28`, `paymentMethodsController.js:69`, and the `payment_methods` seed
+at `initDB.js:155`. Ticket 04 is what adds it. Without a default, this ticket stops every
+sale, item, service and payment method from being created the moment it deploys, which
+contradicts Requirements 7.2 and 7.3 and the program overview's claim that tickets 01–06 are
+each independently deployable.
+
+So each `shop_id` gets a default of the first shop's id — expand, migrate, contract. A column
+default cannot contain a subquery, hence the `DO` block: the id is read into a variable and
+formatted in, so it is still *resolved from the table* rather than written as a literal.
+
+It also closes a second hole the NOT NULL would open. The `payment_methods` seed is guarded on
+the table being empty, so an admin who deletes every payment method makes it re-run on the
+next boot — and that INSERT names no `shop_id`, which would take the backend down.
+
+**Ticket 04 drops these defaults** once every INSERT names its own shop. That is the contract
+that keeps the design's original objection intact: a permanent default would silently absorb a
+statement that forgot its `shop_id`, which is exactly the bug ticket 04's review pass exists
+to catch. It is safe only for as long as nothing is expected to pass one.
+
+> **Do not collapse this into `ADD COLUMN … NOT NULL DEFAULT 1`.** The id must be resolved
+> from `shops`, never hardcoded, and the column has to be backfilled before it can be
+> constrained anyway.
 
 ### Step 4 — Constraint swap, per table
 
@@ -236,13 +272,22 @@ DROP INDEX IF EXISTS idx_closed_sales_paid_using;
 The old single-column `paid_using` index is dropped last, after its replacement exists, so
 there is no window without one.
 
+The statement that *creates* that index, at `initDB.js:124-127`, is deleted at the same time.
+Dropping an index the same function re-creates on the next boot would create and drop it on
+every boot forever. Its comment — reports resolve every sale's label through that column and
+the delete dialog counts rows by it — moves onto the new `(shop_id, paid_using)` index, since
+both of those are now per-shop questions.
+
 ### Rollback
 
 There is none, by design, and none is needed. Every change is additive: no column is dropped,
 no type changes, no data is rewritten except NULL backfills. The pre-upgrade backend runs
-unmodified against the post-upgrade schema, because it never mentions `shop_id` and the
-composite UNIQUE is strictly weaker than the global one it replaced — every insert the old
-code makes still satisfies it.
+unmodified against the post-upgrade schema: it never mentions `shop_id`, the temporary column
+default supplies the one the NOT NULL now demands, and the composite UNIQUE is strictly weaker
+than the global one it replaced — every insert the old code makes still satisfies it.
+
+That compatibility rests entirely on the temporary default. Remove it before ticket 04 has
+put a `shop_id` in every INSERT and the old code stops being able to write at all.
 
 The one asymmetry: reverting *the schema* would require re-adding the global UNIQUE
 constraints, which would fail if a second shop had been created. Since no second shop can
@@ -258,6 +303,7 @@ exist until ticket 06 ships, there is a wide safe window.
 | Composite UNIQUE add finds duplicates | Throws `unique_violation` (not `duplicate_object`, so the guard does not swallow it) | Genuine duplicate data. Must be resolved by hand before the migration can complete |
 | Old constraint name does not match | `DROP CONSTRAINT IF EXISTS` silently does nothing, then the composite add succeeds | Both constraints then coexist and the old global one still blocks a second shop. **Verify by querying `pg_constraint` after the migration**, not by trusting the drop |
 | `shops` seeded twice | Impossible — guarded on `NOT EXISTS` | |
+| An INSERT omits `shop_id` | Silently lands in the first shop, via the temporary default | Correct and required for the legacy window. Ticket 04 drops the defaults, after which the same INSERT fails loudly |
 | Fresh database | Seed runs, backfills match zero rows, constraints apply to empty tables | Identical end state to an upgraded database |
 | `invoice_number` does not match the pattern | `substring` returns NULL | Row keeps `invoice_seq = NULL`; documented and intended |
 
@@ -316,6 +362,18 @@ identical row counts.
 returns 0 — every well-formed number got a sequence.
 
 *Validates: 5.2, 5.3*
+
+### SP7 — The temporary default is in place
+
+```sql
+SELECT table_name, column_default FROM information_schema.columns
+WHERE column_name = 'shop_id'
+  AND table_name IN ('inventory','services','payment_methods','open_sales','closed_sales');
+```
+returns five rows, each defaulting to the first shop's `id`. Ticket 04 inverts this check:
+after it, every `column_default` is NULL.
+
+*Validates: 3.8, 3.9*
 
 ---
 

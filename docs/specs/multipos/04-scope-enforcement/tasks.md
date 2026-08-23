@@ -96,7 +96,21 @@ task in this list.
   - Leave the `/api/auth` mount exactly as ticket 03 left it
   - _Requirements: 1.1, 1.2, 1.3, 1.4_
 
-- [ ] 10. Run the structural checks
+- [ ] 10. Drop the temporary `shop_id` defaults from `backend/config/initDB.js`
+  - Ticket 02 gave `shop_id` a default of the first shop's id on all five scoped tables, so
+    the then-unmodified controllers could keep inserting. Tasks 3–7 above have now put an
+    explicit `shop_id` in every INSERT, so the default has become a liability: it silently
+    lands a statement that forgot its shop in the first shop, which is the exact bug the
+    manual pass in this ticket exists to catch
+  - In the per-table loop in the tenancy block, replace the `SET DEFAULT` `DO` block with
+    `ALTER TABLE <t> ALTER COLUMN shop_id DROP DEFAULT` — idempotent, and it clears the
+    default already sitting in production
+  - Do this **only after** tasks 3–7 are complete. Landing it earlier breaks every write
+  - Confirm by query: `column_default` is NULL for `shop_id` on all five tables in
+    `information_schema.columns` (ticket 02's SP7, inverted)
+  - _Requirements: 3.2, 3.9_
+
+- [ ] 11. Run the structural checks
   - `rg -n "req\.(body|query|params)\.(shop_id|shopId)" backend/` returns nothing (SP1)
   - `rg -n "legacyUnauth|LEGACY_UNAUTH" backend/controllers/` returns nothing (SP2)
   - Run the completeness grep from the design and account for every hit; treat it as a way to
@@ -104,7 +118,7 @@ task in this list.
   - Re-count statements against the design's per-file table: 8 / 11 / 5 / 5 / 7 / 2
   - _Requirements: 3.4, 7.4_
 
-- [ ] 11. Run the two-shop integration matrix
+- [ ] 12. Run the two-shop integration matrix
   - Set up a scratch database with two shops, each holding an item named `Bleach` and a
     service named `Wash`, plus a manager and a worker assigned only to Shop A. Create Shop B
     by direct SQL — the API for it arrives in ticket 06
@@ -114,7 +128,7 @@ task in this list.
     silent unless specifically checked
   - _Requirements: 2.2, 2.3, 3.1–3.8, 4.4, 4.6, 4.7, 5.1–5.4, 6.1, 6.2_
 
-- [ ] 12. Verify the legacy window both ways
+- [ ] 13. Verify the legacy window both ways
   - With `LEGACY_UNAUTH=true` and the **unmodified** frontend, walk all seven routes; every
     list, total and count matches what it showed before this ticket
   - Set `LEGACY_UNAUTH=false`, reload, and confirm the old frontend now fails with 401s —
@@ -122,7 +136,7 @@ task in this list.
   - Set it back to `true` before deploying
   - _Requirements: 7.1, 7.2, 7.3_
 
-- [ ] 13. Verification checkpoint
+- [ ] 14. Verification checkpoint
   - `npm test` in `backend/` passes
   - `utils/saleItems.js`, `utils/paymentMethods.js` and `utils/reorder.js` are **unmodified**,
     and their tests are unchanged. If either had to change, logic leaked into a module meant
@@ -134,7 +148,8 @@ task in this list.
 
 - If this overruns a session, split at task 7/8: tasks 1–7 can ship with the middleware
   unmounted (every controller correct, enforcement still off), and tasks 8–9 turn it on.
-  Split by controller, never by layer.
+  Split by controller, never by layer. Task 10 belongs with the *second* half — the temporary
+  defaults must outlive any partially-scoped intermediate state.
 - A row that exists but belongs to another shop returns **404**, not 403. Adding `shop_id` to
   a `WHERE id = …` makes the row simply not match, so the existing not-found path fires with
   no extra code — and a 403 would confirm to the caller that the id exists somewhere.
