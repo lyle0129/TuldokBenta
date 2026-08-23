@@ -11,7 +11,7 @@ server booting. See the Migration Approach section of [design.md](design.md).
 
 ## Tasks
 
-- [ ] 1. Take a production copy and record baselines
+- [x] 1. Take a production copy and record baselines
   - Create a Neon branch of production (or dump/restore into a scratch database)
   - Record `SELECT COUNT(*)` for `inventory`, `services`, `payment_methods`, `open_sales`,
     `closed_sales` — these are the numbers SP2 checks against
@@ -84,7 +84,7 @@ server booting. See the Migration Approach section of [design.md](design.md).
     dropped again on every boot. Move its comment onto the new `(shop_id, paid_using)` index
   - _Requirements: 6.1, 6.2, 6.3, 6.4, 6.5, 6.6_
 
-- [ ] 9. Verify the structural properties against the production copy
+- [x] 9. Verify the structural properties against the production copy
   - Start the backend against the copy; confirm `✅ Database initialized successfully` and
     that `app.listen` is reached
   - Run SP1: zero NULL `shop_id` in all five tables
@@ -98,12 +98,19 @@ server booting. See the Migration Approach section of [design.md](design.md).
   - Restart the server and re-run SP1–SP4 for SP5 (idempotence)
   - _Requirements: 3.6, 3.8, 4.6, 5.2, 7.4_
 
-- [ ] 10. Regression-check the API with the unmodified frontend
+- [x] 10. Regression-check the API with the unmodified frontend
   - Point the existing frontend at the backend running against the copy
   - Walk the till: create a sale, confirm stock decrements and the invoice number continues
     the existing series; pay it; revert it; delete it
   - Load `/closed-sales` and `/reporting` and confirm the same rows and totals as before
   - Confirm the extra `shop_id` / `invoice_seq` fields in the JSON break nothing
+  - Done at the API level: the pre-ticket-02 backend was booted against the copy first and
+    every read endpoint captured, then the same endpoints re-captured after the migration and
+    diffed field by field — 6,336 closed sales identical and in the same order, the only
+    difference being the two added fields. The till walk ran create → pay → revert → delete
+    with stock and row counts returning to their starting values. The browser pages themselves
+    were **not** clicked through; `/reporting` derives every figure in the browser from these
+    same endpoints
   - _Requirements: 7.2, 7.3_
 
 - [ ] 11. Verification checkpoint

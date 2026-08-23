@@ -227,8 +227,19 @@ ALTER TABLE inventory DROP CONSTRAINT IF EXISTS inventory_item_name_key;
 DO $$ BEGIN
   ALTER TABLE inventory
     ADD CONSTRAINT inventory_shop_item_unique UNIQUE (shop_id, item_name);
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+EXCEPTION WHEN duplicate_object OR duplicate_table THEN NULL; END $$;
 ```
+
+**`duplicate_table` is not optional here**, and this is where the existing
+`inventory_stock_non_negative` idiom at `initDB.js:54-59` cannot be copied verbatim. A UNIQUE
+constraint is backed by an index of the same name, and on the second boot it is that *index*
+that collides first — SQLSTATE `42P07` `duplicate_table`, which a `duplicate_object` (`42710`)
+handler does not catch. The rehearsal caught exactly this: the first boot migrated cleanly and
+the second died with `relation "inventory_shop_item_unique" already exists`, which in
+production means the migration deploys fine and the next restart refuses to boot.
+
+The CHECK constraint above and the foreign keys in step 3 are safe with `duplicate_object`
+alone, because neither creates an index.
 
 Dropping the old UNIQUE also drops its backing index. That is fine: the new composite index
 on `(shop_id, item_name)` serves the lookups ticket 04 will write
@@ -258,6 +269,14 @@ Note the backfill leaves those rows permanently NULL on every subsequent boot, s
 guard is `WHERE invoice_seq IS NULL`. That is intended: there is no correct integer to invent
 for a number that was never in the series, and `MAX()` ignoring it reproduces exactly what
 happens today.
+
+**This backfill is not spent after one run, and must not be deleted.** The controllers do not
+write `invoice_seq` until ticket 04, so every sale taken between this ticket's deploy and that
+one has it NULL — and ticket 04 allocates from `MAX(invoice_seq)`. This statement re-running
+on ticket 04's first boot, before `app.listen`, is what catches those rows. Without it,
+allocation would resume from the pre-upgrade high-water mark and re-issue numbers that already
+exist, and the `23505` retry loop could not recover, because `allocateInvoice` is
+deterministic — it would hand back the same taken number on every attempt.
 
 ### Step 6 — Indexes
 

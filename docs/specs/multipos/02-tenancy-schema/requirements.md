@@ -127,7 +127,10 @@ independent of one another.
 5. THE DB_Init SHALL replace the global UNIQUE constraint on `closed_sales.invoice_number`
    with a composite UNIQUE on `(shop_id, invoice_number)`.
 6. EACH constraint replacement SHALL drop the old constraint with `IF EXISTS` and add the new
-   one under a guard that tolerates it already existing, so the statement is idempotent.
+   one under a guard that tolerates it already existing, so the statement is idempotent. THE
+   guard SHALL catch `duplicate_table` as well as `duplicate_object`: a UNIQUE constraint is
+   backed by an index of the same name, and on a re-run it is that index that collides first,
+   which `duplicate_object` alone does not catch.
 7. EACH constraint replacement SHALL execute only after the backfill and NOT NULL steps for
    that table have completed.
 

@@ -320,11 +320,17 @@ export async function initDB() {
       // Dropping the old UNIQUE takes its index with it. That is fine: shop_id
       // leads the new composite index, so the `WHERE shop_id = $1 AND
       // <column> = $2` lookups ticket 04 writes are still served by it.
+      //
+      // duplicate_table, not just duplicate_object: a UNIQUE constraint is
+      // backed by an index of the same name, and on the second boot it is that
+      // index that collides first — 42P07, which a duplicate_object handler
+      // does not catch. The CHECK and FK guards elsewhere in this file get away
+      // with duplicate_object alone because neither creates an index.
       await sql`
         DO $$ BEGIN
           ALTER TABLE ${sql.unsafe(table)}
             ADD CONSTRAINT ${sql.unsafe(newName)} UNIQUE (shop_id, ${sql.unsafe(column)});
-        EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+        EXCEPTION WHEN duplicate_object OR duplicate_table THEN NULL; END $$;
       `;
     }
 

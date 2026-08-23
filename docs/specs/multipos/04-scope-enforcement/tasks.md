@@ -23,6 +23,15 @@ task in this list.
   - Add `shopId` to `isInvoiceTaken` and scope both halves of its UNION
   - Delete `highestInvoiceSeq` rather than leaving it beside the new function; a second,
     prefix-blind allocation path is how the two drift
+  - **Leave ticket 02's `invoice_seq` backfill in `initDB.js` exactly where it is.** It is not
+    a spent one-time migration: the controllers write `invoice_seq` only from this ticket
+    onwards, so every sale taken during the legacy window has it NULL, and `allocateInvoice`
+    reads `MAX(invoice_seq)`. The backfill running on this ticket's first boot — before
+    `app.listen`, so before a single request is served — is what stops allocation restarting
+    at the pre-ticket-02 high-water mark and re-issuing numbers that already exist. Verified
+    against a copy of production: a sale created with `invoice_seq` NULL had it populated by
+    the next boot. The retry loop would not save you here, because `allocateInvoice` returns
+    the same number every time it is asked
   - Preserve the existing explanatory comments about why both tables must be read and why
     unparseable numbers yield NULL rather than NaN
   - _Requirements: 4.1, 4.2, 4.5, 4.8_
