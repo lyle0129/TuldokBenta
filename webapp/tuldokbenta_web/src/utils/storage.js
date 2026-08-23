@@ -23,8 +23,22 @@ export const OFFLINE_CATALOG_KEY = "offline_catalog";
  */
 export const OFFLINE_NEXT_INVOICE_KEY = "offline_next_invoice";
 
-/** Admin session flag, written by the password gate. */
-export const AUTH_KEY = "authenticated";
+/**
+ * The signed-in session: access token, refresh token, user profile and shop list.
+ *
+ * One object under one key rather than four keys, so a half-written session is
+ * not a state the app can observe — a torn write leaves the old session or none.
+ */
+export const SESSION_KEY = "tb_session";
+
+/**
+ * The old admin session flag, written by the password gate this release deleted.
+ *
+ * Nothing writes it and nothing reads it as a credential any more. It survives
+ * here only so `clearSession` can delete it from a browser that ran the previous
+ * build, where `authenticated: "true"` is still sitting in storage.
+ */
+export const LEGACY_AUTH_FLAG_KEY = "authenticated";
 
 /**
  * Chosen colour scheme, "dark" or "light".

@@ -9,8 +9,18 @@ import {
   Wrench,
 } from "lucide-react";
 
+/** The three roles, matching the CHECK on `users.role` and the token's claim. */
+export const ROLES = {
+  WORKER: "worker",
+  MANAGER: "manager",
+  SUPER_ADMIN: "super_admin",
+};
+
+const ALL = [ROLES.WORKER, ROLES.MANAGER, ROLES.SUPER_ADMIN];
+const MANAGERS = [ROLES.MANAGER, ROLES.SUPER_ADMIN];
+
 /**
- * Every destination in the navbar, in one place.
+ * Every destination in the navbar, in one place, with who may reach it.
  *
  * The seven links used to be written out twice — once for the desktop row and
  * once for the mobile menu — so adding Offline Sales meant remembering to edit
@@ -20,14 +30,17 @@ import {
  * many pages exist. A group holding a single item renders as a plain link
  * rather than a dropdown, so Reporting stays one click away.
  *
- * `adminOnly` mirrors the routes wrapped in ProtectedRoute in App.jsx. Listing
- * a link that only leads to a password prompt is noise, so those hide until
- * the session is open.
+ * `roles` used to be an `adminOnly` boolean that mirrored, by hand, the routes
+ * wrapped in ProtectedRoute over in App.jsx — two lists that could disagree
+ * about what was protected. App.jsx now derives its guards from `rolesForPath`
+ * below, so this array is the only list. The roles themselves come from the
+ * permission matrix in docs/specs/multipos/00-overview.md.
  */
 export const NAV_GROUPS = [
   {
     id: "sales",
     label: "Sales",
+    roles: ALL,
     items: [
       { to: "/open-sales", label: "Open Sales", icon: ShoppingCart },
       { to: "/open-sales-offline", label: "Offline Sales", icon: WifiOff },
@@ -37,7 +50,7 @@ export const NAV_GROUPS = [
   {
     id: "manage",
     label: "Manage",
-    adminOnly: true,
+    roles: MANAGERS,
     items: [
       { to: "/inventory", label: "Inventory", icon: Package },
       { to: "/services", label: "Services", icon: Wrench },
@@ -45,25 +58,33 @@ export const NAV_GROUPS = [
     ],
   },
   {
+    // Hidden from workers as a convenience, NOT as a control. This page derives
+    // every figure in the browser from GET /api/closed-sales and
+    // GET /api/open-sales, both of which are worker-accessible by design — so a
+    // worker with a valid token can fetch the same rows and compute the same
+    // totals whether or not the link is on screen. Do not describe this entry as
+    // protecting anything. See the permission matrix in
+    // docs/specs/multipos/00-overview.md.
     id: "report",
     label: "Reporting",
-    adminOnly: true,
+    roles: MANAGERS,
     items: [{ to: "/reporting", label: "Reporting", icon: BarChart3 }],
   },
 ];
 
-/** The groups a given session may see. */
-export const visibleGroups = (authenticated) =>
-  NAV_GROUPS.filter((group) => authenticated || !group.adminOnly);
+/** The groups a given role may see. A signed-out caller passes null and sees none. */
+export const visibleGroups = (role) =>
+  NAV_GROUPS.filter((group) => group.roles.includes(role));
 
 /**
- * Where the Sign In button points.
+ * The roles permitted to reach a path, for App.jsx's route guards.
  *
- * Hiding the admin groups also hides the only way to reach the password gate,
- * so the button sends you to the first protected page and the gate does the
- * rest.
+ * Returns `[]` for a path no group owns, which denies everyone rather than
+ * admitting everyone — a route added to App.jsx and forgotten here fails closed
+ * and is noticed immediately.
  */
-export const SIGN_IN_ROUTE = "/inventory";
+export const rolesForPath = (path) =>
+  NAV_GROUPS.find((group) => group.items.some((item) => item.to === path))?.roles ?? [];
 
 /** Icon-and-label row, shared by the desktop dropdowns and the mobile drawer. */
 export const navRowClass = (isActive) =>

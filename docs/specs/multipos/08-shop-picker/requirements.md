@@ -1,5 +1,11 @@
 # Requirements: Shop Picker & Shop-Scoped Cache
 
+> **Changed by ticket 07.** `X-Shop-Id` already exists. Ticket 07 could not avoid sending it
+> — `resolveShop` answers `400 No shop selected` to any authenticated request that omits it,
+> because its Shop 1 fallback fires only for the tokenless legacy actor. `apiRequest`
+> therefore sends the **lowest id** in the session's shop list, marked in `api.js` as a
+> stopgap. This ticket replaces that choice with the picker; it does not introduce the header.
+
 ## Introduction
 
 Ticket 07 gave the frontend an identity. This ticket gives it a shop: an active-shop

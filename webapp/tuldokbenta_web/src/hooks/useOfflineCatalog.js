@@ -1,6 +1,6 @@
 // hooks/useOfflineCatalog.js
 import { useCallback, useState } from "react";
-import { API_BASE_URL } from "../api";
+import { apiRequest } from "../api";
 import { readJSON, writeJSON, OFFLINE_CATALOG_KEY } from "../utils/storage";
 import { SEED_INVENTORY, SEED_SERVICES } from "../data/offlineCatalogSeed";
 
@@ -40,13 +40,15 @@ export const useOfflineCatalog = () => {
     setIsRefreshing(true);
     setError(null);
     try {
-      const [invRes, svcRes] = await Promise.all([
-        fetch(`${API_BASE_URL}/inventory`),
-        fetch(`${API_BASE_URL}/services`),
+      // Through apiRequest rather than a bare fetch, which is what these two
+      // used to be — the only calls in the app that bypassed it. Left alone they
+      // would send no Authorization header, 401 quietly, and leave this page
+      // showing a stale catalog with no visible reason.
+      const [inventory, services] = await Promise.all([
+        apiRequest("/inventory"),
+        apiRequest("/services"),
       ]);
-      if (!invRes.ok || !svcRes.ok) throw new Error("Server rejected the request");
 
-      const [inventory, services] = await Promise.all([invRes.json(), svcRes.json()]);
       if (!Array.isArray(inventory) || !Array.isArray(services)) {
         throw new Error("Unexpected response shape");
       }

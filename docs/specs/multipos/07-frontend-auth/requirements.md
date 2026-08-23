@@ -10,9 +10,23 @@ This ticket replaces that with a real login against the API built in ticket 03: 
 and attached to every request, a silent refresh when the access token expires, role-aware
 navigation, and a forced password change for accounts flagged for it.
 
-The shop picker is **not** in this ticket — it is ticket 08. Until then the frontend sends no
-`X-Shop-Id` header, and the backend's legacy fallback supplies Shop 1. That keeps this
-ticket's diff about identity alone.
+The shop picker is **not** in this ticket — it is ticket 08.
+
+> **Correction, made during implementation.** This section previously read: "Until then the
+> frontend sends no `X-Shop-Id` header, and the backend's legacy fallback supplies Shop 1."
+> That is not what the backend does. `resolveShop`'s fallback is guarded on `req.user.legacy`
+> — the synthetic actor `requireAuth` builds only for a request arriving with **no**
+> `Authorization` header — and ticket 04 narrowed it there deliberately, so that an
+> authenticated request which forgot the header gets a 400 instead of silently acting on
+> Shop 1. Correct behaviour, and it means that the moment this ticket starts sending a token,
+> every scoped endpoint answers `400 No shop selected`.
+>
+> So this ticket **does** send `X-Shop-Id`, chosen as the lowest id in the session's shop
+> list (see Requirement 3.5). Ticket 08 replaces the choice with a real picker; it no longer
+> introduces the header from scratch.
+
+Choosing the shop is still out of scope here, which keeps this ticket's diff about identity
+alone.
 
 ## Glossary
 
@@ -86,6 +100,13 @@ that no call site can forget.
 3. EVERY network call in the app SHALL go through `apiRequest`.
 4. THE raw `fetch` calls in `src/hooks/useOfflineCatalog.js` SHALL be converted to
    `apiRequest`, since they are the only calls in the app that currently bypass it.
+5. THE `apiRequest` wrapper SHALL attach `X-Shop-Id` when the session holds at least one
+   shop, choosing the **lowest shop id** — the list arrives ordered by name, so the first
+   element is alphabetical and arbitrary, while the lowest id is the shop that existed
+   first. Ticket 08 replaces the choice; the header itself is required here because
+   `resolveShop` refuses an authenticated request that omits it.
+6. THE `X-Shop-Id` header SHALL be omitted for an account assigned to no shops, which is a
+   real state rather than an error — an account can exist before anyone assigns it.
 
 ---
 

@@ -11,13 +11,13 @@ supplies Shop 1.
 
 ## Tasks
 
-- [ ] 1. Add session keys to `src/utils/storage.js`
+- [x] 1. Add session keys to `src/utils/storage.js`
   - Add `SESSION_KEY = "tb_session"` beside the existing keys
   - Keep `AUTH_KEY` exported for now — task 3 needs it to delete the stale value — with a
     comment saying it is removed in task 12
   - _Requirements: 1.5_
 
-- [ ] 2. Create `src/utils/session.js`
+- [x] 2. Create `src/utils/session.js`
   - Mirror the module shape of the `src/utils/auth.js` it replaces: module-level value, a
     `Set` of listeners, a `notify()`
   - Export `getSession`, `setSession`, `clearSession`, `subscribeSession`, `getAccessToken`,
@@ -31,13 +31,13 @@ supplies Shop 1.
   - `clearSession` also removes the legacy `authenticated` key
   - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.6_
 
-- [ ] 3. Point `src/hooks/useAuth.js` at the new store
+- [x] 3. Point `src/hooks/useAuth.js` at the new store
   - Same `useSyncExternalStore(subscribe, getSnapshot, getSnapshot)` shape; only the imported
     functions change
   - Return the session object rather than a boolean
   - _Requirements: 1.2, 1.4_
 
-- [ ] 4. Add auth to `src/api.js`
+- [x] 4. Add auth to `src/api.js`
   - Attach `Authorization: Bearer` when a session exists; never on `/auth/login` or
     `/auth/refresh`
   - Add `performRefresh` as a **bare `fetch`**, not a recursive `apiRequest` — a refresh must
@@ -55,14 +55,14 @@ supplies Shop 1.
     cancellations as failures
   - _Requirements: 3.1, 3.2, 4.1, 4.2, 4.3, 4.4, 4.5, 4.6_
 
-- [ ] 5. Convert `src/hooks/useOfflineCatalog.js` to `apiRequest`
+- [x] 5. Convert `src/hooks/useOfflineCatalog.js` to `apiRequest`
   - It is the only module in the app calling raw `fetch`. Left alone it would 401 quietly and
     leave the offline page showing a stale catalog with no visible error
   - Preserve the existing behaviour that a failed refresh keeps the current catalog rather
     than emptying it
   - _Requirements: 3.3, 3.4_
 
-- [ ] 6. Rewrite `src/components/shared/navItems.js`
+- [x] 6. Rewrite `src/components/shared/navItems.js`
   - Replace `adminOnly: true` with an explicit `roles` array per group
   - Export `ROLES`, `visibleGroups(role)` and a new `rolesForPath(path)`
   - Add the comment on the Reporting group noting it is hidden as a convenience and is **not**
@@ -71,14 +71,14 @@ supplies Shop 1.
     path to the password prompt, and there is now a real `/login`
   - _Requirements: 5.1, 5.6, 5.7_
 
-- [ ] 7. Create `src/components/shared/RequireRole.jsx` and delete `ProtectedRoute.jsx`
+- [x] 7. Create `src/components/shared/RequireRole.jsx` and delete `ProtectedRoute.jsx`
   - Check order: no session → `/login`; `must_change_password` → `/change-password`; role not
     permitted → `/open-sales`; otherwise render children
   - The password-change check must outrank the role check, or an account with the right role
     reaches pages while still on an admin-set password
   - _Requirements: 5.3, 5.4, 7.1, 8.4_
 
-- [ ] 8. Create `src/pages/Login.jsx`
+- [x] 8. Create `src/pages/Login.jsx`
   - Username and password form styled to match the existing modals in
     `components/sales-modals/`
   - Distinguish a 401 (show the server's message) from an `ApiError` with `status: 0` (the
@@ -86,12 +86,12 @@ supplies Shop 1.
   - Read `location.state.from` and return the user there after signing in
   - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.7_
 
-- [ ] 9. Create `src/pages/ChangePassword.jsx`
+- [x] 9. Create `src/pages/ChangePassword.jsx`
   - Calls `POST /api/auth/change-password`; states the 8-character minimum before submit
   - On success, re-establish the session from the response and allow normal navigation
   - _Requirements: 7.2, 7.3, 7.4_
 
-- [ ] 10. Wire the routes in `src/App.jsx`
+- [x] 10. Wire the routes in `src/App.jsx`
   - Add `/login` and `/change-password`, rendered **outside** the nav shell — a signed-out
     user has no navigation to show
   - Wrap every other route in `RequireRole`, deriving the permitted roles from
@@ -100,7 +100,7 @@ supplies Shop 1.
   - Redirect a signed-in user away from `/login`
   - _Requirements: 2.5, 2.6, 5.2_
 
-- [ ] 11. Update `Navbar.jsx` and `NavDrawer.jsx`
+- [x] 11. Update `Navbar.jsx` and `NavDrawer.jsx`
   - Filter groups with `visibleGroups(role)`
   - Show the signed-in user's full name
   - `handleLogout` calls `POST /api/auth/logout`, then clears session and cache and navigates —
@@ -108,15 +108,20 @@ supplies Shop 1.
   - Remove the old sign-in affordance that pointed at `/inventory`
   - _Requirements: 5.5, 6.1, 6.2, 6.3_
 
-- [ ] 12. Delete the old gate
+- [x] 12. Delete the old gate
   - Delete `src/utils/auth.js`
-  - Remove `AUTH_KEY` from `src/utils/storage.js`
+  - `AUTH_KEY` was **renamed** to `LEGACY_AUTH_FLAG_KEY` rather than removed. Requirement
+    1.6 needs `clearSession` to keep deleting the stale `authenticated` value from browsers
+    that ran the previous build, so the constant has to survive; the rename is what keeps
+    SP1 from matching it. Nothing writes it and nothing reads it as a credential
+  - SP1's remaining hits are all prose — comments in `session.js`, `navItems.js`, `App.jsx`
+    and the two new files naming what they replaced. No code references the old gate
   - Remove `VITE_ADMIN_PASSWORD` from `webapp/tuldokbenta_web/.env.example`
   - Run SP1: `rg -n "VITE_ADMIN_PASSWORD|utils/auth|AUTH_KEY|ProtectedRoute" src` returns nothing
   - Run SP2: `rg -n "fetch\(" src | rg -v "src/api.js"` returns nothing
   - _Requirements: 8.1, 8.2, 8.3, 8.4_
 
-- [ ] 13. Replace and extend the tests
+- [x] 13. Replace and extend the tests
   - `__tests__/ProtectedRoute.test.jsx` → `RequireRole.test.jsx` carrying P1, P2 and P3. The
     old properties describe a mechanism that no longer exists; the new ones assert the same
     *intent* — only the permitted may pass, and the default is denial

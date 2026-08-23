@@ -1,33 +1,44 @@
 // components/shared/Navbar.jsx
 import { useState } from "react";
 import { Link, NavLink, useNavigate } from "react-router-dom";
-import { LogIn, LogOut, Menu, Moon, Sun } from "lucide-react";
+import { LogOut, Menu, Moon, Sun } from "lucide-react";
+import { apiRequest } from "../../api";
 import { clearQueryCache } from "../../queryClient";
-import { signOut } from "../../utils/auth";
+import { clearSession } from "../../utils/session";
 import { useAuth } from "../../hooks/useAuth";
 import { useDarkMode } from "../../hooks/useDarkMode";
 import NavDrawer from "./NavDrawer";
 import NavMenu from "./NavMenu";
-import { navRowClass, SIGN_IN_ROUTE, visibleGroups } from "./navItems";
+import { navRowClass, visibleGroups } from "./navItems";
 
 const DRAWER_ID = "primary-navigation";
 
 const Navbar = () => {
   const navigate = useNavigate();
-  const authenticated = useAuth();
+  const session = useAuth();
   const [darkMode, toggleDarkMode] = useDarkMode();
   const [drawerOpen, setDrawerOpen] = useState(false);
 
-  const groups = visibleGroups(authenticated);
+  const user = session?.user ?? null;
+  const groups = visibleGroups(user?.role ?? null);
 
-  const handleLogout = () => {
-    signOut();
-    // The reload below used to be enough to wipe every list from memory. Now
-    // that the query cache is persisted, sales data would outlive the session
-    // in localStorage unless it is dropped explicitly.
-    clearQueryCache();
-    navigate("/");
-    window.location.reload();
+  const handleLogout = async () => {
+    try {
+      // Server-side this only writes the audit row; there is no token blacklist.
+      // Failing it must not strand the user in a session they have asked to
+      // leave, which is why everything that actually signs them out is in the
+      // finally.
+      await apiRequest("/auth/logout", { method: "POST" });
+    } catch {
+      // Nothing to tell the user: they are being signed out either way.
+    } finally {
+      clearSession();
+      // The reload below used to be enough to wipe every list from memory. Now
+      // that the query cache is persisted, sales data would outlive the session
+      // in localStorage unless it is dropped explicitly.
+      clearQueryCache();
+      navigate("/login", { replace: true });
+    }
   };
 
   const ThemeIcon = darkMode ? Sun : Moon;
@@ -36,7 +47,7 @@ const Navbar = () => {
   // label — there is room for one, and an unlabelled icon in a list of labelled
   // rows reads as an oversight.
   const sessionAction = (extraClasses = "") =>
-    authenticated ? (
+    user ? (
       <button
         type="button"
         onClick={handleLogout}
@@ -45,16 +56,19 @@ const Navbar = () => {
         <LogOut size={18} aria-hidden="true" />
         Logout
       </button>
-    ) : (
-      <Link
-        to={SIGN_IN_ROUTE}
-        onClick={() => setDrawerOpen(false)}
-        className={`flex items-center justify-center gap-2 px-4 min-h-11 rounded-md border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 font-medium transition ${extraClasses}`}
+    ) : null;
+
+  // Who is signed in, so a shared terminal never leaves the previous cashier's
+  // session open without saying so. The username is the fallback because
+  // full_name is optional on an account.
+  const signedInAs = (extraClasses = "") =>
+    user ? (
+      <span
+        className={`text-sm text-gray-600 dark:text-gray-300 truncate ${extraClasses}`}
       >
-        <LogIn size={18} aria-hidden="true" />
-        Sign In
-      </Link>
-    );
+        {user.full_name || user.username}
+      </span>
+    ) : null;
 
   return (
     <>
@@ -111,6 +125,7 @@ const Navbar = () => {
             >
               <ThemeIcon size={18} aria-hidden="true" />
             </button>
+            {signedInAs("max-w-32")}
             {sessionAction()}
           </div>
 
@@ -143,6 +158,7 @@ const Navbar = () => {
         groups={groups}
         footer={
           <>
+            {signedInAs("block px-3 pb-1")}
             <button
               type="button"
               onClick={toggleDarkMode}

@@ -1,15 +1,20 @@
 // hooks/useAuth.js
 import { useSyncExternalStore } from "react";
-import { isAuthenticated, subscribeAuth } from "../utils/auth";
+import { getSession, subscribeSession } from "../utils/session";
 
 /**
- * Whether the admin session is open, re-rendering when that changes.
+ * The current session, re-rendering when it changes.
  *
- * Both the navbar and the password gate read it, so signing in on one unhides
- * the admin links on the other without a page reload.
+ * The navbar, the route guards and the two auth pages all read it, so signing in
+ * on one reveals the right links on the other without a page reload.
  *
- * @returns {boolean}
+ * Returns the session object rather than the boolean this used to, because the
+ * callers now need the role and the user's name, not just whether anyone is
+ * signed in. `getSession` is passed as both the client and the server snapshot
+ * for the same reason it always was: there is no SSR here.
+ *
+ * @returns {{accessToken: string, refreshToken: string, user: object, shops: Array}|null}
  */
 export function useAuth() {
-  return useSyncExternalStore(subscribeAuth, isAuthenticated, isAuthenticated);
+  return useSyncExternalStore(subscribeSession, getSession, getSession);
 }
