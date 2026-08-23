@@ -170,37 +170,9 @@ export async function initDB() {
       )
     `;
 
-    // One-time bootstrap: the two methods that used to be hardcoded in the pay
-    // dialog, plus anything else already sitting in closed_sales so no historical
-    // sale is left showing a raw slug.
-    //
-    // Guarded on the table being empty rather than ON CONFLICT DO NOTHING, which
-    // would resurrect a method the admin deliberately deleted on the next boot.
-    // Both halves are one statement so the guard can't see a half-seeded table.
-    await sql`
-      WITH seed(code, label, icon) AS (
-        VALUES ('cash', 'Cash', 'banknote'), ('gcash', 'GCash', 'smartphone')
-      ),
-      adopted AS (
-        SELECT DISTINCT
-          cs.paid_using AS code,
-          INITCAP(REPLACE(cs.paid_using, '-', ' ')) AS label,
-          NULL::text AS icon
-        FROM closed_sales cs
-        WHERE cs.paid_using IS NOT NULL
-          AND cs.paid_using <> ''
-          AND cs.paid_using NOT IN (SELECT code FROM seed)
-      ),
-      combined AS (
-        SELECT code, label, icon, 0 AS grp FROM seed
-        UNION ALL
-        SELECT code, label, icon, 1 AS grp FROM adopted
-      )
-      INSERT INTO payment_methods (code, label, icon, sort_order)
-      SELECT code, label, icon, ROW_NUMBER() OVER (ORDER BY grp, code)
-      FROM combined
-      WHERE NOT EXISTS (SELECT 1 FROM payment_methods)
-    `;
+    // The one-time bootstrap seed for this table used to live here. It now runs
+    // below, after the tenancy block, because it has to name a shop_id — see the
+    // comment above it for why that matters.
 
     // ─────────────────────── Multi-shop tenancy ───────────────────────
     //
@@ -281,31 +253,19 @@ export async function initDB() {
          WHERE shop_id IS NULL
       `;
 
-      // TEMPORARY, and removed in ticket 04.
+      // Ticket 02 set a temporary default here — the first shop's id — because
+      // no INSERT in the codebase named a shop yet, and the SET NOT NULL below
+      // would otherwise have stopped every sale, item, service and payment
+      // method from being created the moment it deployed.
       //
-      // Not one INSERT in the codebase passes shop_id yet — ticket 04 is what
-      // adds it. Without a default, the SET NOT NULL below would stop every
-      // sale, item, service and payment method from being created the moment
-      // this deploys, and this ticket is supposed to be invisible to the shop.
-      // It would also break the payment_methods seed above, which re-runs if an
-      // admin ever deletes every method.
+      // Ticket 04 put an explicit shop_id in every INSERT, so the default has
+      // turned from a crutch into a liability: it silently lands a statement
+      // that forgot its shop in the first shop, which is the exact bug the
+      // statement-by-statement pass in that ticket exists to catch. Dropping it
+      // makes such a statement fail loudly instead.
       //
-      // A column default cannot contain a subquery, so the id is read into a
-      // variable and formatted in — still resolved from the table, never a
-      // literal 1. Ticket 04 drops these defaults once every INSERT names its
-      // shop, at which point a statement that forgot one must fail loudly
-      // rather than silently land in the first shop.
-      await sql`
-        DO $$
-        DECLARE first_shop INT;
-        BEGIN
-          SELECT id INTO first_shop FROM shops ORDER BY id LIMIT 1;
-          EXECUTE format(
-            'ALTER TABLE ${sql.unsafe(table)} ALTER COLUMN shop_id SET DEFAULT %s',
-            first_shop
-          );
-        END $$;
-      `;
+      // Idempotent, and it clears the default already sitting in production.
+      await sql`ALTER TABLE ${sql.unsafe(table)} ALTER COLUMN shop_id DROP DEFAULT`;
 
       // Only safe after the backfill above: SET NOT NULL scans the table and
       // throws on any remaining NULL. A no-op when the column is already NOT
@@ -384,6 +344,51 @@ export async function initDB() {
         EXCEPTION WHEN duplicate_object OR duplicate_table THEN NULL; END $$;
       `;
     }
+
+    // One-time bootstrap: the two methods that used to be hardcoded in the pay
+    // dialog, plus anything else already sitting in closed_sales so no historical
+    // sale is left showing a raw slug.
+    //
+    // Guarded on the table being empty rather than ON CONFLICT DO NOTHING, which
+    // would resurrect a method the admin deliberately deleted on the next boot.
+    // Both halves are one statement so the guard can't see a half-seeded table.
+    //
+    // Runs HERE, below the tenancy block, rather than beside the CREATE TABLE it
+    // belongs to. It has to name a shop_id, which means shops must exist and the
+    // column must have been added — and it cannot be left above relying on the
+    // default, because ticket 04 just dropped that default. Left where it was,
+    // the first later boot that found this table globally empty would violate
+    // NOT NULL, and initDB exits the process on any failure: the backend would
+    // simply stop starting.
+    //
+    // The guard stays global rather than per shop. Seeding a *newly created*
+    // shop's methods is ticket 06's job, alongside the API that creates one.
+    await sql`
+      WITH seed(code, label, icon) AS (
+        VALUES ('cash', 'Cash', 'banknote'), ('gcash', 'GCash', 'smartphone')
+      ),
+      adopted AS (
+        SELECT DISTINCT
+          cs.paid_using AS code,
+          INITCAP(REPLACE(cs.paid_using, '-', ' ')) AS label,
+          NULL::text AS icon
+        FROM closed_sales cs
+        WHERE cs.paid_using IS NOT NULL
+          AND cs.paid_using <> ''
+          AND cs.paid_using NOT IN (SELECT code FROM seed)
+      ),
+      combined AS (
+        SELECT code, label, icon, 0 AS grp FROM seed
+        UNION ALL
+        SELECT code, label, icon, 1 AS grp FROM adopted
+      )
+      INSERT INTO payment_methods (shop_id, code, label, icon, sort_order)
+      SELECT (SELECT id FROM shops ORDER BY id LIMIT 1),
+             code, label, icon, ROW_NUMBER() OVER (ORDER BY grp, code)
+      FROM combined
+      WHERE NOT EXISTS (SELECT 1 FROM payment_methods)
+        AND EXISTS (SELECT 1 FROM shops)
+    `;
 
     // The real invoice sequence. Numbering is derived today by parsing
     // `^INV-([0-9]+)$` out of invoice_number, so the moment a shop edits its

@@ -9,8 +9,8 @@ import {
 } from "../utils/saleItems.js";
 import { assertMethodActive } from "../utils/paymentMethods.js";
 import {
-  formatInvoiceNumber,
-  highestInvoiceSeq,
+  allocateInvoice,
+  parseInvoiceSeq,
   isInvoiceTaken,
 } from "../utils/invoiceNumber.js";
 
@@ -25,26 +25,33 @@ const INVOICE_ATTEMPTS = 5;
  * permanently wrong. `sql.transaction([...])` sends the whole batch as a single
  * transaction — note the queries are passed unawaited on purpose.
  *
+ * The shop is passed in rather than read from a request this has no access to —
+ * and the predicate below is the single most important one in this file. Sale
+ * lines reference inventory by name string with no foreign key, so without
+ * `shop_id` a sale at one shop silently decrements another shop's stock for
+ * every item name the two share, which for a chain of laundromats is all of them.
+ *
+ * @param {number} shopId the trusted scope, from req.shopId
  * @param {Map<string, number>} deltas item_name to signed stock change
  * @param {Array} saleQueries unawaited sale-table queries to run in the same tx
  */
-const applyStockAndSale = async (deltas, saleQueries) => {
+const applyStockAndSale = async (shopId, deltas, saleQueries) => {
   const stockQueries = [...deltas].map(
     ([name, delta]) => sql`
       UPDATE inventory
       SET stock = stock + ${delta}
-      WHERE item_name = ${name}
+      WHERE shop_id = ${shopId} AND item_name = ${name}
     `
   );
   return sql.transaction([...stockQueries, ...saleQueries]);
 };
 
 /** Current stock for exactly the items a request touches — one query, not N. */
-const loadStockFor = async (deltas) => {
+const loadStockFor = async (shopId, deltas) => {
   if (deltas.size === 0) return [];
   return sql`
     SELECT item_name, stock FROM inventory
-    WHERE item_name = ANY(${[...deltas.keys()]})
+    WHERE shop_id = ${shopId} AND item_name = ANY(${[...deltas.keys()]})
   `;
 };
 
@@ -65,7 +72,9 @@ export const getOpenSales = async (req, res) => {
       lowdate && highdate
         ? sql` AND created_at BETWEEN ${lowdate} AND ${highdate} `
         : sql``;
-    const sales = await sql`SELECT * FROM open_sales WHERE 1=1 ${dateFilter} ORDER BY created_at DESC`;
+    // The old `WHERE 1=1` placeholder existed only so the optional fragment above
+    // could always start with AND. The shop predicate now fills that role.
+    const sales = await sql`SELECT * FROM open_sales WHERE shop_id = ${req.shopId} ${dateFilter} ORDER BY created_at DESC`;
     res.status(200).json(sales);
   } catch (error) {
     console.error("Error fetching open sales", error);
@@ -83,10 +92,10 @@ export const getOpenSales = async (req, res) => {
  * sale and take the maximum — which cost the whole table for one integer and was no
  * more accurate.
  */
-export const getNextInvoice = async (_req, res) => {
+export const getNextInvoice = async (req, res) => {
   try {
-    const seq = (await highestInvoiceSeq(sql)) + 1;
-    res.status(200).json({ invoice_number: formatInvoiceNumber(seq) });
+    const { invoice } = await allocateInvoice(sql, req.shopId);
+    res.status(200).json({ invoice_number: invoice });
   } catch (error) {
     console.error("Error reading the next invoice number", error);
     res.status(500).json({ message: "Internal Server Error" });
@@ -119,23 +128,36 @@ export const createOpenSale = async (req, res) => {
     }
 
     const deltas = stockDeltas([], items);
-    assertStockAvailable(deltas, await loadStockFor(deltas));
+    assertStockAvailable(deltas, await loadStockFor(req.shopId, deltas));
 
-    let invoice =
-      requested && !(await isInvoiceTaken(sql, requested)) ? requested : null;
+    // Allocated up front even when the caller supplied a number, because the shop's
+    // prefix comes back with it and a supplied number can only be turned into an
+    // invoice_seq by parsing it against that prefix.
+    let allocated = await allocateInvoice(sql, req.shopId);
+
+    // A supplied number that is free *within this shop* is honoured. It may not
+    // parse as this shop's series at all — the offline page lets it be typed by
+    // hand — in which case invoice_seq stays NULL rather than the sale being
+    // refused. invoice_number remains the authoritative display value either way.
+    let invoice = null;
+    let seq = null;
+    if (requested && !(await isInvoiceTaken(sql, req.shopId, requested))) {
+      invoice = requested;
+      seq = parseInvoiceSeq(requested, allocated.prefix);
+    }
 
     for (let attempt = 0; attempt < INVOICE_ATTEMPTS; attempt++) {
       if (!invoice) {
-        invoice = formatInvoiceNumber((await highestInvoiceSeq(sql)) + 1);
+        ({ invoice, seq } = allocated);
       }
 
       try {
         // Deduction and INSERT go together: a duplicate invoice_number used to make
         // the INSERT fail *after* stock had already been taken, destroying it.
-        const results = await applyStockAndSale(deltas, [
+        const results = await applyStockAndSale(req.shopId, deltas, [
           sql`
-            INSERT INTO open_sales (invoice_number, items, customer_name)
-            VALUES (${invoice}, ${JSON.stringify(items)}, ${customerName})
+            INSERT INTO open_sales (shop_id, invoice_number, invoice_seq, items, customer_name)
+            VALUES (${req.shopId}, ${invoice}, ${seq}, ${JSON.stringify(items)}, ${customerName})
             RETURNING *
           `,
         ]);
@@ -149,11 +171,16 @@ export const createOpenSale = async (req, res) => {
         });
       } catch (error) {
         // The checks above are plain reads, so another create can still take the
-        // number between them and this INSERT. That's a 23505, and it rolled the
-        // whole transaction back — stock included — so picking the next number and
-        // trying again is safe rather than double-deducting.
+        // number between them and this INSERT. That's a 23505 — now on the composite
+        // (shop_id, invoice_number) constraint — and it rolled the whole transaction
+        // back, stock included, so picking the next number and trying again is safe
+        // rather than double-deducting.
         if (error?.code !== "23505") throw error;
         invoice = null;
+        seq = null;
+        // Re-read rather than incrementing: whoever beat us to the number may have
+        // taken several, and the shop row is the only thing that knows.
+        allocated = await allocateInvoice(sql, req.shopId);
       }
     }
 
@@ -173,7 +200,10 @@ export const updateOpenSale = async (req, res) => {
       throw badRequest("A sale must have at least one item — delete the sale instead");
     }
 
-    const existingSale = await sql`SELECT * FROM open_sales WHERE id = ${id}`;
+    // Scoped, so another shop's sale is simply not found. 404 rather than 403 on
+    // purpose: a 403 would confirm to the caller that the id exists somewhere.
+    const existingSale =
+      await sql`SELECT * FROM open_sales WHERE id = ${id} AND shop_id = ${req.shopId}`;
     if (existingSale.length === 0) {
       return res.status(404).json({ message: "Sale not found" });
     }
@@ -191,14 +221,14 @@ export const updateOpenSale = async (req, res) => {
     // approach committed the restock before validating the new lines, so a
     // rejected edit left inventory credited for a sale that never changed.
     const deltas = stockDeltas(existingSale[0].items, items);
-    assertStockAvailable(deltas, await loadStockFor(deltas));
+    assertStockAvailable(deltas, await loadStockFor(req.shopId, deltas));
 
-    const results = await applyStockAndSale(deltas, [
+    const results = await applyStockAndSale(req.shopId, deltas, [
       sql`
         UPDATE open_sales
         SET items = ${JSON.stringify(items)},
             customer_name = ${nextCustomerName}
-        WHERE id = ${id}
+        WHERE id = ${id} AND shop_id = ${req.shopId}
         RETURNING *
       `,
     ]);
@@ -215,14 +245,15 @@ export const updateOpenSale = async (req, res) => {
 export const deleteOpenSale = async (req, res) => {
   try {
     const { id } = req.params;
-    const sale = await sql`SELECT * FROM open_sales WHERE id = ${id}`;
+    const sale =
+      await sql`SELECT * FROM open_sales WHERE id = ${id} AND shop_id = ${req.shopId}`;
     if (sale.length === 0) return res.status(404).json({ message: "Sale not found" });
 
     // Restock and delete together, so a failed DELETE can't leave the stock
     // credited on a sale that still exists (and gets credited again on retry).
     const deltas = stockDeltas(sale[0].items, []);
-    const results = await applyStockAndSale(deltas, [
-      sql`DELETE FROM open_sales WHERE id = ${id} RETURNING *`,
+    const results = await applyStockAndSale(req.shopId, deltas, [
+      sql`DELETE FROM open_sales WHERE id = ${id} AND shop_id = ${req.shopId} RETURNING *`,
     ]);
 
     if (results[results.length - 1].length === 0) {
@@ -251,23 +282,28 @@ export const paySale = async (req, res) => {
     assertMethodActive(
       await sql`
         SELECT code FROM payment_methods
-        WHERE code = ${paid_using} AND is_active = TRUE
+        WHERE shop_id = ${req.shopId} AND code = ${paid_using} AND is_active = TRUE
       `
     );
 
-    const sale = await sql`SELECT * FROM open_sales WHERE id = ${id}`;
+    const sale =
+      await sql`SELECT * FROM open_sales WHERE id = ${id} AND shop_id = ${req.shopId}`;
     if (sale.length === 0) return res.status(404).json({ message: "Sale not found" });
     const s = sale[0];
 
     // Stock was already deducted when the sale was created, so nothing to
     // adjust here — but the move must be atomic or the sale can end up in both
     // tables and be paid twice.
+    //
+    // shop_id and invoice_seq are carried from the originating row rather than
+    // re-derived: this is the one operation that copies a sale between tables,
+    // and re-deriving either would be a chance to lose the tenant or the series.
     await sql.transaction([
       sql`
-        INSERT INTO closed_sales (invoice_number, items, created_at, paid_at, paid_using, customer_name)
-        VALUES (${s.invoice_number}, ${JSON.stringify(s.items)}, ${s.created_at}, ${paidAt}, ${paid_using}, ${s.customer_name ?? null})
+        INSERT INTO closed_sales (shop_id, invoice_number, invoice_seq, items, created_at, paid_at, paid_using, customer_name)
+        VALUES (${s.shop_id}, ${s.invoice_number}, ${s.invoice_seq ?? null}, ${JSON.stringify(s.items)}, ${s.created_at}, ${paidAt}, ${paid_using}, ${s.customer_name ?? null})
       `,
-      sql`DELETE FROM open_sales WHERE id = ${id}`,
+      sql`DELETE FROM open_sales WHERE id = ${id} AND shop_id = ${req.shopId}`,
     ]);
 
     res.status(200).json({ message: "Sale moved to closed", paid_at: paidAt, paid_using });
@@ -281,16 +317,19 @@ export const revertSale = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const sale = await sql`SELECT * FROM closed_sales WHERE id = ${id}`;
+    const sale =
+      await sql`SELECT * FROM closed_sales WHERE id = ${id} AND shop_id = ${req.shopId}`;
     if (sale.length === 0) return res.status(404).json({ message: "Sale not found" });
     const s = sale[0];
 
+    // The mirror image of paySale: same reason for carrying shop_id and
+    // invoice_seq across rather than re-deriving them.
     await sql.transaction([
       sql`
-        INSERT INTO open_sales (invoice_number, items, created_at, paid_at, paid_using, customer_name)
-        VALUES (${s.invoice_number}, ${JSON.stringify(s.items)}, ${s.created_at}, ${null}, ${null}, ${s.customer_name ?? null})
+        INSERT INTO open_sales (shop_id, invoice_number, invoice_seq, items, created_at, paid_at, paid_using, customer_name)
+        VALUES (${s.shop_id}, ${s.invoice_number}, ${s.invoice_seq ?? null}, ${JSON.stringify(s.items)}, ${s.created_at}, ${null}, ${null}, ${s.customer_name ?? null})
       `,
-      sql`DELETE FROM closed_sales WHERE id = ${id}`,
+      sql`DELETE FROM closed_sales WHERE id = ${id} AND shop_id = ${req.shopId}`,
     ]);
 
     res.status(200).json({ message: "Sale reverted to open." });

@@ -78,7 +78,8 @@ export const allocateInvoice = async (sql, shopId) => {
      WHERE s.id = ${shopId}
   `;
   const { invoice_prefix, next_seq } = rows[0];
-  return { seq: next_seq, invoice: formatInvoiceNumber(next_seq, invoice_prefix) };
+  return { seq: next_seq, invoice: formatInvoiceNumber(next_seq, invoice_prefix),
+           prefix: invoice_prefix };
 };
 
 /** Whether `invoice` is spoken for **within this shop**, in either sale table. */
@@ -87,6 +88,21 @@ export const isInvoiceTaken = async (sql, shopId, invoice) => { /* + shop_id pre
 /** "INV-0087" -> 87 given prefix "INV-". Anything else -> null. */
 export const parseInvoiceSeq = (invoice, prefix = INVOICE_PREFIX) => { /* … */ };
 ```
+
+> **Amended during implementation — `allocateInvoice` also returns the prefix.**
+> The original signature was `{ seq, invoice }`, which is not enough for Requirement 4.8.
+> When a caller supplies an `invoice_number` that is free within the shop — the offline
+> queue's path — we honour it *and* have to populate `invoice_seq`, which means parsing
+> the supplied string against **that shop's** prefix. Returning it from the query that
+> already selects it costs nothing and saves `createOpenSale` a second round trip.
+
+> **Amended during implementation — `parseInvoiceSeq` does not build a regex.**
+> The prefix is a shop-editable column from ticket 06 onwards, so interpolating it into a
+> `RegExp` would let `INV.` match `INVx` and would break outright on an unbalanced
+> bracket. The implementation uses `startsWith` plus a digit test on the remainder:
+> identical behaviour for `INV-`, and no escaping question to get wrong. A parse that
+> silently stops matching is exactly how R6 in the overview — a shop restarting its
+> numbering at 1 and colliding with its own history — comes true.
 
 `formatInvoiceNumber` gains a prefix parameter defaulting to `INVOICE_PREFIX`, so the
 frontend's copy of the helper and the backend's stay compatible during the transition.
@@ -189,6 +205,22 @@ single statement can appear in both (a `paySale` transaction touches `open_sales
 `closed_sales`). Reconciling them is not the point; having two independent counts that must
 both come out right is.
 
+> **Amended during implementation — what these numbers actually count.**
+> Four of the six match the number of `sql` tagged templates in the finished file exactly.
+> Two do not, and both are counting conventions rather than missed work:
+>
+> - `openSalesController.js` has **15** tagged templates, not 11. The design's figure treats
+>   each `sql.transaction([...])` batch as one statement and files the payment-method check
+>   under Requirement 6. (`rg` reports 18 in the file: the 15, plus one mention inside a
+>   comment and the two `dateFilter` fragments, which are fragments and not statements.)
+> - `paymentMethodsController.js` has **5** templates against a count of 7, because the
+>   `usage_count` correlation and the `MAX(sort_order)` allocation are each counted as
+>   their own scoped statement — which is the right way round, since each needs its own
+>   predicate.
+>
+> Tick off the 15-line enumeration per file rather than the totals. The totals are the
+> cross-check, not the checklist.
+
 ### Completeness check
 
 After the edits, this must return nothing:
@@ -243,8 +275,20 @@ For any positive integer `n` and any prefix string of 1–10 characters,
 
 ### P2 — Parsing is prefix-sensitive
 
-For any `n` and any two distinct prefixes `a` and `b`,
+For any `n` and any two distinct prefixes `a` and `b` **that end in a non-digit**,
 `parseInvoiceSeq(formatInvoiceNumber(n, a), b)` is `null`.
+
+> **Amended during implementation — the non-digit constraint is load-bearing.**
+> Without it the property is simply false, and the test found it: `formatInvoiceNumber(1, "A")`
+> is `"A0001"`, and parsing that with prefix `"A0"` yields `1`, because `padStart` supplied
+> the zero the second prefix then eats. Constrained to prefixes ending in a non-digit — which
+> the schema default `'INV-'` is — the remainder under any other prefix must contain that
+> non-digit and so cannot be all digits, and the ambiguity disappears. The fast-check
+> arbitrary carries the constraint, and a comment in the test carries the reason.
+>
+> The arbitrary also requires the prefix to survive `trim()`, since `parseInvoiceSeq` trims
+> its input before matching — a prefix with edge whitespace could never match the string it
+> had just produced.
 
 *Validates: 4.8*
 
@@ -348,6 +392,33 @@ free of scope.
 ---
 
 ## Migration Approach
+
+### Dropping the `shop_id` defaults takes the `payment_methods` seed with it
+
+Found during implementation, and not covered by the task list as written.
+
+Task 10 drops the temporary column defaults ticket 02 added. But the one-time
+`payment_methods` bootstrap seed in `initDB.js` — the one that plants `cash` and `gcash`
+plus anything already sitting in `closed_sales.paid_using` — INSERTs **without** a
+`shop_id`, and it is guarded on `WHERE NOT EXISTS (SELECT 1 FROM payment_methods)`. That
+guard is global, so the seed re-fires on any later boot that finds the table empty across
+all shops. With the default gone, that INSERT violates `NOT NULL`; `initDB()` calls
+`process.exit(1)` on any failure, so **the backend stops starting.** Low probability,
+total impact, and silent until the day it happens.
+
+Ticket 02 predicted exactly this in its own comment beside the `SET DEFAULT` block and
+left it to this ticket; task 10 then did not mention it.
+
+The fix, applied here: move the seed from beside its `CREATE TABLE` down to below the
+tenancy block — after `shops` exists and after the `shop_id` column has been added — and
+give it an explicit `shop_id` resolved as `(SELECT id FROM shops ORDER BY id LIMIT 1)`,
+the same subquery form the rest of that block uses, never a literal `1`. An
+`AND EXISTS (SELECT 1 FROM shops)` guard keeps it inert on a database with no shop yet.
+
+The guard stays **global rather than per shop**. Seeding a newly created shop's payment
+methods belongs with the API that creates one, which is ticket 06.
+
+### Order
 
 Deployable in one go, but if the session runs long, **split by controller, not by layer.**
 

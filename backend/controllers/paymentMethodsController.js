@@ -5,14 +5,21 @@ import { invalidOrderedIds } from "../utils/reorder.js";
  * Ordering used everywhere: the admin's custom order, then label for un-numbered rows.
  *
  * `usage_count` rides along so the delete dialog can warn that past sales point
- * at this method without paying for a second round trip. closed_sales has an
- * index on paid_using for exactly this.
+ * at this method without paying for a second round trip. closed_sales has a
+ * (shop_id, paid_using) index for exactly this.
+ *
+ * Both sides of the subquery are scoped. The inner one correlates on
+ * `cs.shop_id = pm.shop_id` rather than on the shopId parameter — it is the same
+ * value, but correlating against the outer row makes the statement correct by
+ * construction instead of by two values happening to agree.
  */
-const selectOrdered = () => sql`
+const selectOrdered = (shopId) => sql`
   SELECT pm.*,
-         (SELECT COUNT(*) FROM closed_sales cs WHERE cs.paid_using = pm.code)::int
+         (SELECT COUNT(*) FROM closed_sales cs
+           WHERE cs.shop_id = pm.shop_id AND cs.paid_using = pm.code)::int
            AS usage_count
   FROM payment_methods pm
+  WHERE pm.shop_id = ${shopId}
   ORDER BY pm.sort_order NULLS LAST, pm.label ASC
 `;
 
@@ -37,7 +44,7 @@ export async function getPaymentMethods(req, res) {
   try {
     // Inactive rows are returned too: reports need their labels, and the pay
     // dialog filters to active itself. One cache entry serves both.
-    const methods = await selectOrdered();
+    const methods = await selectOrdered(req.shopId);
     res.status(200).json(methods);
   } catch (error) {
     console.error("Error fetching payment methods", error);
@@ -65,11 +72,14 @@ export async function createPaymentMethod(req, res) {
 
     // New methods land at the bottom of the custom order rather than at a NULL
     // sort_order, which would float them to the end unpredictably.
+    //
+    // The subquery is scoped too, or a new shop's first method inherits another
+    // shop's ordering and starts at MAX(everyone) + 1 instead of 1.
     const created = await sql`
-      INSERT INTO payment_methods (code, label, icon, sort_order)
+      INSERT INTO payment_methods (shop_id, code, label, icon, sort_order)
       VALUES (
-        ${finalCode}, ${String(label).trim()}, ${icon || null},
-        (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM payment_methods)
+        ${req.shopId}, ${finalCode}, ${String(label).trim()}, ${icon || null},
+        (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM payment_methods WHERE shop_id = ${req.shopId})
       )
       RETURNING *
     `;
@@ -106,7 +116,7 @@ export async function updatePaymentMethod(req, res) {
       SET label = COALESCE(${label !== undefined ? String(label).trim() : null}, label),
           icon = COALESCE(${icon === undefined ? null : icon}, icon),
           is_active = COALESCE(${is_active === undefined ? null : Boolean(is_active)}, is_active)
-      WHERE id = ${id}
+      WHERE id = ${id} AND shop_id = ${req.shopId}
       RETURNING *
     `;
     if (updated.length === 0) {
@@ -135,18 +145,22 @@ export async function reorderPaymentMethods(req, res) {
     if (problem) return res.status(400).json({ message: problem });
 
     // Queries are passed unawaited on purpose — sql.transaction batches them.
+    //
+    // Every one of them is scoped: the ids come straight from the client, so
+    // without the predicate a caller could renumber — and thereby confirm the
+    // existence of — rows in another shop.
     await sql.transaction(
       orderedIds.map(
         (id, index) => sql`
           UPDATE payment_methods
           SET sort_order = ${index + 1}
-          WHERE id = ${Number(id)}
+          WHERE id = ${Number(id)} AND shop_id = ${req.shopId}
         `
       )
     );
 
     // Return the resulting list so the client can reconcile its optimistic order.
-    const methods = await selectOrdered();
+    const methods = await selectOrdered(req.shopId);
     res.status(200).json(methods);
   } catch (error) {
     console.error("Error reordering payment methods", error);
@@ -160,7 +174,8 @@ export async function deletePaymentMethod(req, res) {
     // Allowed even when sales reference the code — they keep their string and
     // the reports fall back to a title-cased version of it. The client warns
     // first and offers deactivating instead.
-    const deleted = await sql`DELETE FROM payment_methods WHERE id = ${id} RETURNING *`;
+    const deleted =
+      await sql`DELETE FROM payment_methods WHERE id = ${id} AND shop_id = ${req.shopId} RETURNING *`;
     if (deleted.length === 0) {
       return res.status(404).json({ message: "Payment method not found" });
     }

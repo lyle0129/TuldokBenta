@@ -35,7 +35,8 @@ export const getClosedSales = async (req, res) => {
     // the column names can never come from the query string.
     const sales = await sql`
       SELECT * FROM closed_sales
-      WHERE (${paidLow}::timestamp     IS NULL OR paid_at    >= ${paidLow}::timestamp)
+      WHERE shop_id = ${req.shopId}
+        AND (${paidLow}::timestamp     IS NULL OR paid_at    >= ${paidLow}::timestamp)
         AND (${paidHigh}::timestamp    IS NULL OR paid_at    <= ${paidHigh}::timestamp)
         AND (${createdLow}::timestamp  IS NULL OR created_at >= ${createdLow}::timestamp)
         AND (${createdHigh}::timestamp IS NULL OR created_at <= ${createdHigh}::timestamp)
@@ -67,7 +68,10 @@ export const updateClosedSale = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const existing = await sql`SELECT * FROM closed_sales WHERE id = ${id}`;
+    // Scoped, so another shop's sale is simply not found — 404, not 403, which
+    // would confirm that the id exists somewhere.
+    const existing =
+      await sql`SELECT * FROM closed_sales WHERE id = ${id} AND shop_id = ${req.shopId}`;
     if (existing.length === 0)
       return res.status(404).json({ message: "Sale not found" });
     const sale = existing[0];
@@ -97,7 +101,7 @@ export const updateClosedSale = async (req, res) => {
         assertMethodActive(
           await sql`
             SELECT code FROM payment_methods
-            WHERE code = ${paidUsing} AND is_active = TRUE
+            WHERE shop_id = ${req.shopId} AND code = ${paidUsing} AND is_active = TRUE
           `
         );
       }
@@ -107,7 +111,7 @@ export const updateClosedSale = async (req, res) => {
       UPDATE closed_sales
       SET customer_name = ${customerName},
           paid_using = ${paidUsing}
-      WHERE id = ${id}
+      WHERE id = ${id} AND shop_id = ${req.shopId}
       RETURNING *
     `;
     if (updated.length === 0)
@@ -124,7 +128,7 @@ export const deleteClosedSale = async (req, res) => {
   try {
     const { id } = req.params;
     const deleted =
-      await sql`DELETE FROM closed_sales WHERE id = ${id} RETURNING *`;
+      await sql`DELETE FROM closed_sales WHERE id = ${id} AND shop_id = ${req.shopId} RETURNING *`;
     if (deleted.length === 0)
       return res.status(404).json({ message: "Sale not found" });
     res.status(200).json({ message: "Closed sale deleted successfully" });

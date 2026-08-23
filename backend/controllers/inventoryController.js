@@ -21,8 +21,8 @@ const invalidPrice = (price) =>
   price !== undefined && price !== null && (!Number.isFinite(Number(price)) || Number(price) < 0);
 
 /** Ordering used everywhere: the admin's custom order, then name for un-numbered rows. */
-const selectOrdered = () =>
-  sql`SELECT * FROM inventory ORDER BY sort_order NULLS LAST, item_name ASC`;
+const selectOrdered = (shopId) =>
+  sql`SELECT * FROM inventory WHERE shop_id = ${shopId} ORDER BY sort_order NULLS LAST, item_name ASC`;
 
 const fail = (res, error, context) => {
   const { status, message } = toErrorResponse(error);
@@ -33,7 +33,7 @@ const fail = (res, error, context) => {
 // GET /api/inventory
 export const getInventory = async (req, res) => {
   try {
-    const items = await selectOrdered();
+    const items = await selectOrdered(req.shopId);
     res.status(200).json(items);
   } catch (error) {
     console.error("Error fetching inventory", error);
@@ -55,25 +55,29 @@ export const createOrRestockItem = async (req, res) => {
       return res.status(400).json({ message: "Price must be a number of 0 or more" });
     }
 
-    const existing = await sql`SELECT * FROM inventory WHERE item_name = ${item_name}`;
+    const existing =
+      await sql`SELECT * FROM inventory WHERE shop_id = ${req.shopId} AND item_name = ${item_name}`;
     if (existing.length > 0) {
       const updated = await sql`
         UPDATE inventory
-        SET stock = stock + ${stock || 0}, 
+        SET stock = stock + ${stock || 0},
             price = ${price},
             item_classification = COALESCE(${item_classification}, item_classification)
-        WHERE item_name = ${item_name}
+        WHERE shop_id = ${req.shopId} AND item_name = ${item_name}
         RETURNING *
       `;
       return res.status(200).json(updated[0]);
     } else {
       // New items land at the bottom of the custom order rather than at a NULL
       // sort_order, which would float them to the end unpredictably.
+      //
+      // The subquery is scoped too, or a new shop's first item inherits another
+      // shop's ordering and starts at MAX(everyone) + 1 instead of 1.
       const item = await sql`
-        INSERT INTO inventory (item_name, price, stock, item_classification, sort_order)
+        INSERT INTO inventory (shop_id, item_name, price, stock, item_classification, sort_order)
         VALUES (
-          ${item_name}, ${price}, ${stock || 0}, ${item_classification},
-          (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM inventory)
+          ${req.shopId}, ${item_name}, ${price}, ${stock || 0}, ${item_classification},
+          (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM inventory WHERE shop_id = ${req.shopId})
         )
         RETURNING *
       `;
@@ -111,7 +115,7 @@ export const updateItem = async (req, res) => {
           price = COALESCE(${price}, price),
           stock = COALESCE(${stock}, stock),
           item_classification = COALESCE(${item_classification}, item_classification)
-      WHERE id = ${id}
+      WHERE id = ${id} AND shop_id = ${req.shopId}
       RETURNING *
     `;
     if (updated.length === 0) return res.status(404).json({ message: "Item not found" });
@@ -146,7 +150,7 @@ export const restockItem = async (req, res) => {
     const updated = await sql`
       UPDATE inventory
       SET stock = stock + ${Number(amount)}
-      WHERE id = ${id}
+      WHERE id = ${id} AND shop_id = ${req.shopId}
       RETURNING *
     `;
     if (updated.length === 0) return res.status(404).json({ message: "Item not found" });
@@ -176,18 +180,22 @@ export const reorderInventory = async (req, res) => {
     if (problem) return res.status(400).json({ message: problem });
 
     // Queries are passed unawaited on purpose — sql.transaction batches them.
+    //
+    // Every one of them is scoped: the ids come straight from the client, so
+    // without the predicate a caller could renumber — and thereby confirm the
+    // existence of — rows in another shop.
     await sql.transaction(
       orderedIds.map(
         (id, index) => sql`
           UPDATE inventory
           SET sort_order = ${index + 1}
-          WHERE id = ${Number(id)}
+          WHERE id = ${Number(id)} AND shop_id = ${req.shopId}
         `
       )
     );
 
     // Return the resulting list so the client can reconcile its optimistic order.
-    const items = await selectOrdered();
+    const items = await selectOrdered(req.shopId);
     res.status(200).json(items);
   } catch (error) {
     fail(res, error, "Error reordering inventory");
@@ -198,7 +206,8 @@ export const reorderInventory = async (req, res) => {
 export const deleteItem = async (req, res) => {
   try {
     const { id } = req.params;
-    const deleted = await sql`DELETE FROM inventory WHERE id = ${id} RETURNING *`;
+    const deleted =
+      await sql`DELETE FROM inventory WHERE id = ${id} AND shop_id = ${req.shopId} RETURNING *`;
     if (deleted.length === 0) return res.status(404).json({ message: "Item not found" });
     res.status(200).json({ message: "Item deleted successfully" });
   } catch (error) {
