@@ -7,6 +7,7 @@ export function applyMiddleware(app) {
       origin: [
         "http://localhost:5173", // local dev
         "https://pos-spincredible.vercel.app", // replace with your frontend
+        "https://multipos-orpin.vercel.app",// test with temporary front end deployment
       ],
       methods: ["GET", "POST", "PUT", "DELETE"],
       credentials: true,
