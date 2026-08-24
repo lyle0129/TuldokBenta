@@ -106,7 +106,7 @@ const ListClosedSales = ({
               </ul>
             </div>
 
-            {/* Full-width buttons on a phone; a narrow column from `sm:` up.
+            {/* Two buttons per row on a phone; a narrow column from `sm:` up.
                 These used to be a fixed column that squeezed the invoice text
                 to a sliver on a narrow screen. The recipe now lives in
                 fieldStyles so all three sales lists share it. */}

@@ -38,13 +38,18 @@ export const submitButtonClass = (colors) =>
 export const saleCardClass =
   "border border-gray-200 dark:border-gray-700 rounded-lg shadow-sm p-4 sm:p-5 flex flex-col sm:flex-row sm:justify-between sm:items-start gap-4 bg-white dark:bg-gray-800 hover:shadow-md transition";
 
-/** The column those actions sit in: a row on a phone, a column from `sm:` up. */
+/**
+ * The block those actions sit in: two per row on a phone, a column from `sm:`
+ * up. A single flex row overflowed the card — a `flex-1` item can't shrink past
+ * its own label, so four or five buttons ran off the side of the screen.
+ * `grid-cols-2` is `minmax(0, 1fr)`, which can. Same shape as UsersList's.
+ */
 export const saleActionsClass =
-  "flex sm:flex-col gap-2 text-sm sm:flex-shrink-0";
+  "grid grid-cols-2 sm:flex sm:flex-col gap-2 text-sm sm:flex-shrink-0";
 
 /** One action button. Pass an entry from `rowActionAccents`. */
 export const rowActionClass = (accent) =>
-  `flex-1 sm:flex-none px-4 min-h-11 rounded-md border font-medium transition ${accent}`;
+  `flex-1 sm:flex-none flex items-center justify-center text-center px-4 py-2 min-h-11 rounded-md border font-medium leading-tight transition ${accent}`;
 
 /**
  * One accent per kind of action, so Print is the same colour on every sales
