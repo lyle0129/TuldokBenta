@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="MultiPOS">
+  <!--
+    The MultiPOS drum mark. A washer door seen head on: white ring, blue window,
+    a lighter wave riding in the bottom of it, and the detergent dispenser as a
+    dot off the top right.
+
+    Drawn mark-only on purpose. The wordmark version turns to mush below about
+    64px, and this thing spends most of its life as a 16px favicon, so the ring
+    and the dot are the whole silhouette — keep the gap between them.
+  -->
+  <defs>
+    <clipPath id="mp-window">
+      <circle cx="240" cy="256" r="90" />
+    </clipPath>
+  </defs>
+
+  <rect width="512" height="512" rx="115" fill="#1B57C4" />
+
+  <circle cx="240" cy="256" r="145" fill="#FFFFFF" />
+  <circle cx="240" cy="256" r="90" fill="#1B57C4" />
+
+  <!-- Overruns the window on all three sides; the clip does the shaping. -->
+  <path
+    d="M 145 286 C 180 258 212 258 246 284 C 278 308 310 306 335 282 L 335 352 L 145 352 Z"
+    fill="#6FA8F2"
+    clip-path="url(#mp-window)"
+  />
+
+  <circle cx="404" cy="126" r="44" fill="#FFFFFF" />
+</svg>

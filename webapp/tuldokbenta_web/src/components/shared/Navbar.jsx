@@ -85,8 +85,8 @@ const Navbar = () => {
           <div className="flex items-center gap-2 flex-shrink-0 min-w-0">
             <Link to="/" className="flex-shrink-0">
               <img
-                src="/Spincredible.png"
-                alt="TuldokBenta home"
+                src="/multipos-icon.svg"
+                alt="MultiPOS home"
                 className="h-8 w-8 rounded-md object-contain"
               />
             </Link>

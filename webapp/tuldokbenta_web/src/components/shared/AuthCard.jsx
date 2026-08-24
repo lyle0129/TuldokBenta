@@ -14,7 +14,7 @@ const AuthCard = ({ title, subtitle, children }) => (
     <div className="w-full max-w-sm space-y-6">
       <div className="flex flex-col items-center gap-3">
         <img
-          src="/Spincredible.png"
+          src="/multipos-icon.svg"
           alt=""
           className="h-14 w-14 rounded-xl object-contain"
         />
