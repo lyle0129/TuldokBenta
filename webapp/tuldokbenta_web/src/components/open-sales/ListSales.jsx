@@ -7,6 +7,7 @@ import CorrectDatesModal from "../admin/CorrectDatesModal";
 import SearchInput from "../shared/SearchInput";
 import Pagination from "../shared/Pagination";
 import { useAuth } from "../../hooks/useAuth";
+import { useShopProfile } from "../../hooks/useShopProfile";
 import { filterSales } from "../../utils/filterSales";
 import { isFreeLine } from "../../utils/buildSaleItems";
 import { formatCurrency, formatDateTime, saleTotal } from "../../utils/format";
@@ -36,6 +37,11 @@ const ListSales = ({
   // what past reports say, and /api/admin refuses everyone else anyway.
   const session = useAuth();
   const isSuperAdmin = session?.user?.role === "super_admin";
+
+  // The receipt's header. Read here rather than threaded down as a prop, the way
+  // this list already reads the session — and it is persisted, so a print on the
+  // first paint after a reload still has it.
+  const { shopProfile } = useShopProfile();
 
   const [editError, setEditError] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -199,7 +205,7 @@ const ListSales = ({
 
                     <button
                       type="button"
-                      onClick={() => printInvoice(sale)}
+                      onClick={() => printInvoice(sale, shopProfile)}
                       className={rowActionClass(rowActionAccents.purple)}
                     >
                       Print

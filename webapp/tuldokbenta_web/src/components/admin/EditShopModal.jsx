@@ -1,8 +1,10 @@
 // components/admin/EditShopModal.jsx
 import { useEffect, useState } from "react";
 import Modal from "../shared/Modal";
+import ReceiptPreview from "../shared/ReceiptPreview";
 import ShopProfileFields from "./ShopProfileFields";
-import { profileBody, profileFrom } from "../../utils/shopProfile";
+import { fetchShopLogo } from "../../hooks/useAdminShops";
+import { profileBody, profileFrom, profilePreview } from "../../utils/shopProfile";
 import {
   labelClass,
   inputClass,
@@ -13,7 +15,11 @@ import {
 } from "../shared/fieldStyles";
 
 /**
- * Editing a shop's name and receipt profile.
+ * Editing a shop's name and receipt profile, with a live preview of the receipt
+ * it will print.
+ *
+ * The preview is the real print document in a frame, not a re-creation of it, so
+ * what an admin sees here is exactly what comes out of the printer.
  *
  * `slug` is shown and disabled rather than hidden. It is the key five tables
  * file their rows under, the server refuses to change it, and an admin looking
@@ -36,18 +42,61 @@ const EditShopModal = ({
 }) => {
   const [form, setForm] = useState(null);
 
+  // undefined means "not touched", so a save sends no logo request at all. null
+  // means the admin cleared it, and a File means they picked a new one. Three
+  // states rather than two, because "leave whatever is there" and "remove what
+  // is there" are different instructions.
+  const [pendingLogo, setPendingLogo] = useState(undefined);
+
+  // Keyed on the shop's id, not the object. A save that returns a warning hands
+  // back a fresh row for the same shop and reopens the modal on it — re-seeding
+  // there would throw away the logo that was just uploaded, because the admin
+  // route's rows carry `has_logo` rather than the image itself.
   useEffect(() => {
-    if (shop) setForm({ name: shop.name ?? "", ...profileFrom(shop) });
-  }, [shop]);
+    if (shop) {
+      setForm({ name: shop.name ?? "", ...profileFrom(shop) });
+      setPendingLogo(undefined);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shop?.id]);
+
+  // The list carries has_logo rather than the image, so the image is fetched
+  // here — once, for the one shop actually being looked at.
+  useEffect(() => {
+    if (!shop?.has_logo) return;
+
+    const controller = new AbortController();
+
+    fetchShopLogo(shop.id, controller.signal)
+      .then((result) => {
+        if (result?.logo_data_url) {
+          setForm((current) =>
+            current ? { ...current, logo_data_url: result.logo_data_url } : current
+          );
+        }
+      })
+      .catch((err) => {
+        // The preview shows no logo and the form still saves. Not worth a banner
+        // over the fields the admin actually came here to edit.
+        if (err?.name !== "AbortError") console.error("Error loading shop logo:", err);
+      });
+
+    return () => controller.abort();
+  }, [shop?.id, shop?.has_logo]);
 
   if (!shop || !form) return null;
 
   const name = form.name.trim();
   const isValid = name !== "";
 
+  const pickLogo = (file, dataUrl) => {
+    setPendingLogo(file);
+    setForm((current) => ({ ...current, logo_data_url: dataUrl }));
+  };
+
   const submit = () => {
     if (!isValid || isSubmitting) return;
-    onSubmit(shop.id, { name, ...profileBody(form) });
+    onSubmit(shop.id, { name, ...profileBody(form) }, pendingLogo);
   };
 
   return (
@@ -56,7 +105,7 @@ const EditShopModal = ({
       onClose={onClose}
       title={`Edit ${shop.name}`}
       accent="yellow"
-      size="lg"
+      size="2xl"
       variant="sheet"
       footer={
         <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-3">
@@ -86,47 +135,57 @@ const EditShopModal = ({
         </div>
       )}
 
-      <form
-        className="space-y-4"
-        onSubmit={(e) => {
-          e.preventDefault();
-          submit();
-        }}
-      >
-        <div>
-          <label className={labelClass} htmlFor="edit-shop-name">
-            Shop Name
-          </label>
-          <input
-            id="edit-shop-name"
-            type="text"
-            autoFocus
-            value={form.name}
-            onChange={(e) => setForm({ ...form, name: e.target.value })}
-            className={inputClass}
-          />
-        </div>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <form
+          className="space-y-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            submit();
+          }}
+        >
+          <div>
+            <label className={labelClass} htmlFor="edit-shop-name">
+              Shop Name
+            </label>
+            <input
+              id="edit-shop-name"
+              type="text"
+              autoFocus
+              value={form.name}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+              className={inputClass}
+            />
+          </div>
 
-        <div>
-          <label className={labelClass} htmlFor="edit-shop-slug">
-            Slug
-          </label>
-          <input
-            id="edit-shop-slug"
-            type="text"
-            value={shop.slug}
-            readOnly
-            disabled
-            className={`${inputClass} font-mono opacity-60 cursor-not-allowed`}
-          />
-          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-            Fixed once the shop exists — every sale, item and audit row is filed
-            under it.
-          </p>
-        </div>
+          <div>
+            <label className={labelClass} htmlFor="edit-shop-slug">
+              Slug
+            </label>
+            <input
+              id="edit-shop-slug"
+              type="text"
+              value={shop.slug}
+              readOnly
+              disabled
+              className={`${inputClass} font-mono opacity-60 cursor-not-allowed`}
+            />
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+              Fixed once the shop exists — every sale, item and audit row is filed
+              under it.
+            </p>
+          </div>
 
-        <ShopProfileFields form={form} onChange={setForm} idPrefix="edit-shop" />
-      </form>
+          <ShopProfileFields
+            form={form}
+            onChange={setForm}
+            onPickLogo={pickLogo}
+            idPrefix="edit-shop"
+            disabled={isSubmitting}
+          />
+        </form>
+
+        <ReceiptPreview shop={profilePreview(form, form.name)} className="lg:sticky lg:top-0" />
+      </div>
     </Modal>
   );
 };

@@ -15,20 +15,36 @@ cache the offline catalog already uses.
 
 ```
 backend/
+├── config/initDB.js                       ← + logo_blob / logo_mime / logo_updated_at
 ├── controllers/shopProfileController.js   ← NEW
+├── controllers/adminShopsController.js    ← explicit column lists; validation extracted
 ├── routes/shopProfile.js                  ← NEW
+├── routes/admin.js                        ← + three logo routes
+├── utils/shopLogo.js                      ← NEW (mime allowlist, raw parser, data URI)
+├── utils/shopProfile.js                   ← NEW (validation shared by both edit paths)
 └── server.js                              ← + one mount
 
 webapp/tuldokbenta_web/src/
-├── utils/printInvoice.js         ← signature change; all literals removed
+├── utils/
+│   ├── printInvoice.js           ← split into buildReceiptDocument + printInvoice
+│   ├── logoFile.js               ← NEW (client-side mirror of the mime/size rules)
+│   └── shopProfile.js            ← + logo_data_url, + profilePreview
 ├── hooks/
 │   ├── useShopProfile.js         ← NEW
+│   ├── useAdminShops.js          ← + logo mutation, + fetchShopLogo
 │   └── useOfflineCatalog.js      ← + profile in the snapshot
-├── pages/ShopSettings.jsx        ← NEW
-├── components/shared/
-│   ├── Invoice.jsx               ← DELETED
-│   ├── ReceiptPreview.jsx        ← NEW (the settings page's live preview)
-│   └── navItems.js               ← + Shop Settings under "Manage"
+├── data/sampleReceipt.js         ← NEW (the sale the preview renders)
+├── pages/
+│   ├── ShopSettings.jsx          ← NEW
+│   └── AdminShops.jsx            ← + preview modal, + logo save
+├── components/
+│   ├── shared/Invoice.jsx        ← DELETED
+│   ├── shared/ReceiptPreview.jsx ← NEW (the real print document in an iframe)
+│   ├── shared/LogoField.jsx      ← NEW
+│   ├── shared/navItems.js        ← + Receipt Settings under "Manage"
+│   ├── admin/ReceiptPreviewModal.jsx ← NEW
+│   ├── admin/ShopProfileFields.jsx   ← Logo URL input → upload control
+│   └── admin/{Add,Edit}ShopModal.jsx ← + live preview pane
 └── queryClient.js                ← + shopProfile key, + PERSISTED_RESOURCES entry
 ```
 
@@ -50,8 +66,10 @@ app.use("/api/shop-profile", requireAuth, resolveShop, shopProfileRouter);
 
 ```js
 // routes/shopProfile.js
-router.get("/",  getShopProfile);                                         // all roles: the till prints
-router.put("/",  requireRole("manager", "super_admin"), updateShopProfile);
+router.get("/",     getShopProfile);                                            // all roles: the till prints
+router.put("/",     requireRole("manager", "super_admin"), updateShopProfile);
+router.post("/logo",   managerUp, rawImage, uploadShopLogo);
+router.delete("/logo", managerUp, deleteShopLogo);
 ```
 
 `GET` is open to workers because the till needs the header to print a receipt. That is the
@@ -59,6 +77,77 @@ same reasoning that keeps `GET /api/inventory` worker-accessible.
 
 `updateShopProfile` explicitly allowlists the columns it writes, so `slug` and `is_active`
 cannot be reached through it even if a client sends them.
+
+---
+
+## The logo
+
+### Why bytes and not a URL
+
+The original plan for this ticket kept `logo_url` and named "storing a data URI instead" as a
+later fix. It is done here because a URL cannot satisfy the constraints this ticket already
+has:
+
+- A receipt is printed into a popup built by `document.write`. Its `<img>` sends no
+  `Authorization` and no `X-Shop-Id`, so a guarded endpoint cannot serve it.
+- Requirement 3 says a receipt must print with a header when the device is offline. There is
+  nothing to fetch a URL over.
+
+Both are answered by the same thing: store the bytes, and serve them inline as base64 on the
+profile `GET`. The image then travels with the profile into the persisted query cache and the
+offline snapshot, and reaches the printer as an ordinary `src="data:image/png;base64,…"`.
+
+### Schema
+
+Three idempotent adds to `shops`: `logo_blob BYTEA`, `logo_mime VARCHAR(50)`,
+`logo_updated_at TIMESTAMP`. `logo_url` is **kept** and becomes a read-only fallback — Shop 1
+was seeded with the hotlinked image, and Requirement 6.1 says its receipt must be unchanged.
+Nothing needs re-uploading for the rollout to be invisible.
+
+The renderer prefers the upload: `shop.logo_data_url || shop.logo_url || ""`.
+
+### Transport
+
+`express.raw({ type: ALLOWED_LOGO_MIME, limit: 512kb })`, mounted **per route**, not globally —
+`express.json()` keeps its own default limit because no image goes through the JSON path. No
+new dependency: multer would buy nothing for a single-file, single-field upload.
+
+It is wrapped rather than used bare. This backend has **no error-handling middleware at all**,
+so an oversized body would reach Express's default handler and come back as HTML, which
+`api.js` then parses as JSON and reports as a generic failure. The wrapper answers 413 and 400
+in the `{ message }` shape every other endpoint uses.
+
+On the client, `apiRequest` grows one option, `rawBody`. A `File` goes out unwrapped with its
+own type as the `Content-Type`. It routes through `apiRequest` rather than around it so the
+upload inherits the auth header, the shop header, the single-flight 401 refresh and the 403
+shop recovery. A `Blob` is re-readable, which is what makes replaying it on the 401 retry safe —
+a stream would not be, and must not be passed.
+
+### No SVG
+
+`image/png`, `image/jpeg`, `image/webp`. An SVG data URI in the print popup would execute its
+own script in a document assembled by string concatenation, so it is refused on both sides.
+
+### Keeping bytes out of the wrong places
+
+Two leaks are easy to write and invisible once written:
+
+- **`SELECT *` on `shops`.** `listShops`, `updateShop` and `setShopActive` all used `*` or
+  `RETURNING *`. With a blob column, a console listing ten shops drags ten images through the
+  driver to render ten cards. All of them now name columns explicitly through a shared
+  `shopColumns` fragment that yields `(logo_blob IS NOT NULL) AS has_logo` instead — and the
+  console fetches one shop's image at a time from `/admin/shops/:id/logo`.
+- **The audit trail.** `audit_log.changes` is JSONB the console renders as a change summary.
+  A logo write records `{ has_logo, logo_mime }` and never the bytes.
+
+The base64 is computed by Postgres — `encode(logo_blob, 'base64')` — which sidesteps any
+question of how the neon-http driver decodes `BYTEA` on the way back.
+
+### Size
+
+512 KB, set by localStorage rather than by the database. A till holds the profile twice — in
+the persisted query cache and in the offline catalog snapshot — so 512 KB of image is ~1.4 MB
+of base64 against a ~5 MB quota. A logo printed 50 mm wide has no use for more.
 
 ---
 
@@ -138,16 +227,53 @@ The snapshot is per shop once ticket 11 namespaces the storage keys. Until then 
 active shop's profile and is replaced on switch, which is correct but not yet durable across
 switches; ticket 11 closes that.
 
-### `pages/ShopSettings.jsx` and `ReceiptPreview.jsx`
+### `ReceiptPreview.jsx`
 
-A form over the profile fields plus a live preview. The preview reuses the header markup
-rather than re-implementing it — extract the header-building into a small exported function in
-`printInvoice.js` that both the printed document and the React preview consume, so the preview
-cannot drift from what actually prints.
+`printInvoice.js` splits in two: `buildReceiptDocument(sale, shop, { printButton })`, a pure
+string builder, and `printInvoice(sale, shop)`, which opens the popup and writes what the
+builder returned.
 
-The `invoice_prefix` warning (Requirement 4.4) fires when the shop has sales. The backend's
-`PUT` response already carries that signal from ticket 06's equivalent on the admin route;
-mirror it here.
+`ReceiptPreview` then renders that document in an `<iframe srcDoc>`. Not a React re-creation of
+the receipt, and not `dangerouslySetInnerHTML` — for two reasons that are the whole point of
+the component:
+
+- **It cannot drift.** Requirement 5 says exactly one module renders a receipt. The preview is
+  showing that module's output, so a change to the printed layout appears here for free and a
+  preview that disagrees with the printer is not expressible.
+- **CSS isolation.** The receipt document sets its own body width in millimetres and its own
+  monospace font. Dropped into the page it would inherit Tailwind's reset; inside a frame it is
+  its own document, exactly as it is when it opens in its own window.
+
+The frame is `sandbox=""` — nothing in a receipt needs to run, and the document interpolates
+text somebody typed.
+
+The sale it renders is a fixed fixture in `data/sampleReceipt.js`, in the flat STORED shape
+real sales have. No `Date.now()` anywhere: the preview re-renders on every keystroke, and a
+moving timestamp would make the whole receipt flicker while somebody is fixing a phone number.
+
+### Where the preview appears
+
+Three mounts, one component:
+
+| Where | Why |
+|---|---|
+| `pages/ShopSettings.jsx` | A manager's own shop (Requirement 4.3) |
+| `{Add,Edit}ShopModal` | Live beside the fields, updating as the super admin types |
+| `ReceiptPreviewModal` from the shop card | Any shop, without entering the editor |
+
+The modals read the half-edited form through `profilePreview(form, name)`, which shapes form
+state into what the renderer reads — so the preview is driven by the same object the printer
+will eventually get.
+
+### `pages/ShopSettings.jsx`
+
+A form over the profile fields beside that preview. The `invoice_prefix` warning (Requirement
+4.4) fires when the shop has sales; the backend's `PUT` response carries the signal, shared
+with ticket 06's admin route through `utils/shopProfile.js` so the two cannot word it
+differently.
+
+The logo is saved as a second request, after the profile `PUT`. Ordering them that way means a
+rejected image cannot also lose the address that was just typed.
 
 ### Deleting `Invoice.jsx`
 
@@ -163,17 +289,23 @@ and stop if any have appeared.
 
 ## Data Models
 
-No schema changes — ticket 02 added every column.
+Ticket 02 added every text column. This ticket adds three for the uploaded logo, idempotently,
+and drops nothing.
 
 The Receipt Profile as served:
 
 ```js
-{ id, name, address_line, contact_number, logo_url,
-  receipt_footer, receipt_paper_width_mm, invoice_prefix }
+{ id, name, slug, address_line, contact_number,
+  logo_url,           // legacy fallback, read-only
+  logo_data_url,      // "data:image/png;base64,…" or null
+  logo_mime, logo_updated_at, has_logo,
+  receipt_footer, receipt_paper_width_mm, invoice_prefix,
+  is_active, created_at }
 ```
 
-`slug` and `is_active` are deliberately absent from the `PUT` allowlist, though `slug` may be
-returned for display.
+`slug` and `is_active` are deliberately absent from the `PUT` allowlist, though both are
+returned for display. `logo_url` is absent from it too: no form edits it any more, so a diff
+that listed it would record a change the statement never made.
 
 ---
 
@@ -184,15 +316,18 @@ returned for display.
 | Profile fetch fails, cache warm | Cached profile used; receipt prints normally |
 | Profile fetch fails, cache cold | Receipt prints with the header omitted |
 | Worker attempts `PUT /api/shop-profile` | 403 |
+| Worker attempts `POST /api/shop-profile/logo` | 403, before any body is read |
 | `PUT` includes `slug` or `is_active` | Ignored by the allowlist, 200 |
 | `receipt_paper_width_mm` non-numeric | 400 |
-| Logo URL unreachable at print time | The browser renders a broken image; the rest of the receipt prints |
+| Upload of the wrong content type | 400 `{ message }` |
+| Upload over 512 KB | 413 `{ message }` — refused in the browser first |
+| Logo upload fails after the profile saved | The profile change stands; the modal shows the error and stays open |
+| Legacy `logo_url` unreachable at print time | The browser renders a broken image; the rest of the receipt prints |
 | Popup blocked | Existing warn-and-return path, unchanged |
 
-The logo row is worth noting: the current logo is hotlinked from `i.ibb.co`, so a receipt
-already depends on an external host being reachable at print time. This ticket does not fix
-that — it makes it configurable, which is a precondition for fixing it later by storing a data
-URI instead.
+The last row is now the *legacy* case only. A shop that has uploaded a logo carries it inline,
+so printing no longer depends on any external host — which was the point of doing the blob work
+in this ticket rather than deferring it.
 
 ---
 
@@ -247,6 +382,23 @@ returns nothing outside `package-lock.json`.
 
 *Validates: 5.1, 5.2, 5.3*
 
+### Structural property SP3 — no blob leaves through a wildcard
+
+```powershell
+rg -n "SELECT \*|RETURNING \*" backend/controllers/adminShopsController.js
+```
+returns nothing. Every query against `shops` names its columns, so adding a column can never
+silently start shipping it to the console.
+
+*Validates: 1a.11*
+
+### P5 — the preview is the print document
+
+`buildReceiptDocument(sale, shop)` equals what `printInvoice(sale, shop)` writes, for the same
+input. This is what makes the preview trustworthy rather than merely similar.
+
+*Validates: 4a.3, 5.3*
+
 ---
 
 ## Testing Strategy
@@ -274,12 +426,18 @@ Add P1–P4 to the same file using `fast-check`.
 | Edit Shop 1's phone number, print again | New number appears |
 | Print at Shop 2 | Shop 2's own details |
 | Clear the address line, print | No blank line on the receipt |
-| Clear the logo URL, print | No image block, no broken-image icon |
-| Set paper width to 80, print | The print preview widens |
-| Go offline, reload, print from the offline page | Header still present |
+| Upload a PNG, print | The uploaded logo replaces the hotlinked one |
+| Remove the logo, print | No image block, no broken-image icon |
+| Upload a 4 MB image | Refused in the browser, no request sent |
+| Set paper width to 80, print | The print preview widens; the logo scales with it |
+| Go offline, reload, print from the offline page | Header and logo still present |
 | Clear `localStorage`, go offline, print | Prints without a header rather than failing |
 | Worker opens the settings route | Redirected away |
-| Manager edits `invoice_prefix` on a shop with sales | Warning shown before saving |
+| Manager edits `invoice_prefix` on a shop with sales | Warning shown after saving |
+| Super admin types in Edit Shop | The preview updates live |
+| Super admin opens "Receipt" on a shop card | That shop's sample receipt |
+| Console shop list network payload | No base64 in it |
+| Audit log after a logo upload | A `shop.update` row naming `has_logo`, with no base64 |
 
 The two offline rows are the ones this ticket most easily gets wrong, and neither shows up in
 normal online testing.

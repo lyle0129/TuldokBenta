@@ -6,6 +6,9 @@
  * The customer name is free text, and so is the invoice number — the offline
  * page lets it be edited by hand. A name containing "<" would otherwise open a
  * tag and eat the rest of the receipt.
+ *
+ * Every shop-profile field is free text too, now that the header comes from the
+ * database rather than from the literals that used to sit in this file.
  */
 import { displayLines } from "./buildSaleItems";
 
@@ -17,8 +20,61 @@ const escapeHtml = (value) =>
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
 
+/** The width every receipt used to be, and what one prints at when unconfigured. */
+const DEFAULT_PAPER_WIDTH_MM = 58;
+
 /**
- * Opens a new browser tab and renders a thermal-receipt HTML page.
+ * The image a receipt prints, preferring the shop's uploaded logo.
+ *
+ * The upload wins over `logo_url` because the URL is the older, weaker option: it
+ * depends on an external host being reachable at print time and cannot be seen
+ * at all by a till with no connection. It stays as the fallback only so that a
+ * shop configured before uploads existed keeps printing the logo it already had.
+ */
+const logoSource = (shop) => shop?.logo_data_url || shop?.logo_url || "";
+
+/**
+ * One line of the shop's identity, or nothing at all.
+ *
+ * Nothing at all is the point. An empty <p> is a blank line you can see on a
+ * 58 mm roll, so a shop that has not filled in an address must not pay for the
+ * field's existence in paper.
+ */
+const line = (tag, value, style) =>
+  value ? `<${tag} style="${style}">${escapeHtml(value)}</${tag}>` : "";
+
+/**
+ * The receipt's identity block: logo, name, address, contact.
+ *
+ * Exported so the settings pages can render exactly what will print rather than
+ * a React lookalike that drifts the first time either one is edited.
+ */
+export const buildReceiptHeader = (shop) => {
+  const logo = logoSource(shop);
+
+  return `
+        ${
+          logo
+            ? `<div style="text-align:center;margin-bottom:4px;">
+          <img src="${escapeHtml(logo)}"
+               alt="${escapeHtml(shop?.name ?? "Shop logo")}"
+               style="max-width:85%;width:auto;height:auto;margin-bottom:6px;" />
+        </div>`
+            : ""
+        }
+
+        <div style="text-align:center;margin-bottom:8px;">
+          ${line("h2", shop?.name, "font-size:14px;margin:0;")}
+          ${line("p", shop?.address_line, "margin:0;")}
+          ${line("p", shop?.contact_number, "margin:0;")}
+        </div>`;
+};
+
+/**
+ * The complete receipt document, as a string.
+ *
+ * Pure: it opens no window and touches no DOM, which is what lets the preview in
+ * the settings pages render the very same bytes the printer receives.
  *
  * @param {Object} sale
  * @param {string}  sale.invoice_number
@@ -33,8 +89,16 @@ const escapeHtml = (value) =>
  * @param {number}  sale.items[].price
  * @param {number}  [sale.items[].qty]
  * @param {Array}   [sale.items[].freebies]
+ * @param {Object}  [shop] - the shop's receipt profile. Optional throughout: a till
+ *   whose profile has not loaded prints the sale with no header rather than
+ *   failing to print, because for a cashier holding a customer's money a receipt
+ *   missing its header beats no receipt at all.
+ * @param {Object}  [options]
+ * @param {boolean} [options.printButton=true] - the on-page Print button, which a
+ *   preview does not want
+ * @returns {string} the full HTML document
  */
-export function printInvoice(sale) {
+export function buildReceiptDocument(sale, shop, { printButton = true } = {}) {
   const total = sale.items.reduce(
     (sum, it) => sum + Number(it.price) * (it.qty || 1),
     0
@@ -87,17 +151,10 @@ export function printInvoice(sale) {
   // "Invalid Date".
   const printedDate = new Date(sale.created_at ?? sale.date).toLocaleString();
 
-  const newPage = window.open("", "_blank", "width=600,height=800");
+  const paperWidth =
+    Number(shop?.receipt_paper_width_mm) || DEFAULT_PAPER_WIDTH_MM;
 
-  if (!newPage) {
-    console.warn(
-      "printInvoice: window.open() returned null. The popup may have been blocked by the browser."
-    );
-    return;
-  }
-
-  newPage.document.open();
-  newPage.document.write(`
+  return `
     <html>
       <head>
         <title>Invoice #${escapeHtml(sale.invoice_number)}</title>
@@ -105,7 +162,7 @@ export function printInvoice(sale) {
           body {
             font-family: monospace;
             font-size: 12px;
-            width: 58mm;
+            width: ${paperWidth}mm;
             margin: 0;
             padding: 1px;
           }
@@ -117,19 +174,7 @@ export function printInvoice(sale) {
         </style>
       </head>
       <body>
-        <!-- Logo -->
-        <div style="text-align:center;margin-bottom:4px;">
-          <img src="https://i.ibb.co/NFtDrgj/SPINCREDIBLE.png" 
-               alt="SPINCREDIBLE Logo" 
-               style="max-width:50mm;width:100%;height:auto;margin-bottom:6px;" />
-        </div>
-
-        <!-- Store Details -->
-        <div style="text-align:center;margin-bottom:8px;">
-          <h2 style="font-size:14px;margin:0;">SPINCREDIBLE</h2>
-          <p style="margin:0;">Rizal Street Ext</p>
-          <p style="margin:0;">Mo: 0962-683-7430</p>
-        </div>
+        ${buildReceiptHeader(shop)}
 
         <p>Invoice #: ${escapeHtml(sale.invoice_number)}</p>
         ${
@@ -157,12 +202,15 @@ export function printInvoice(sale) {
         <hr />
 
         <!-- Footer -->
-        <p style="text-align:center;margin-top:12px;">
-          Thank you for your purchase!
-        </p>
+        ${line(
+          "p",
+          shop?.receipt_footer,
+          "text-align:center;margin-top:12px;"
+        )}
 
-        <!-- Print Button -->
-        <button style="
+        ${
+          printButton
+            ? `<button style="
           display:block;
           margin:15px auto;
           padding:8px 16px;
@@ -172,9 +220,31 @@ export function printInvoice(sale) {
           border:none;
           border-radius:6px;
           cursor:pointer;
-        " onclick="window.print()">Print Invoice</button>
+        " onclick="window.print()">Print Invoice</button>`
+            : ""
+        }
       </body>
     </html>
-  `);
+  `;
+}
+
+/**
+ * Opens a new browser tab and renders a thermal-receipt HTML page.
+ *
+ * @param {Object} sale  see buildReceiptDocument
+ * @param {Object} [shop] the shop's receipt profile; optional
+ */
+export function printInvoice(sale, shop) {
+  const newPage = window.open("", "_blank", "width=600,height=800");
+
+  if (!newPage) {
+    console.warn(
+      "printInvoice: window.open() returned null. The popup may have been blocked by the browser."
+    );
+    return;
+  }
+
+  newPage.document.open();
+  newPage.document.write(buildReceiptDocument(sale, shop));
   newPage.document.close();
 }

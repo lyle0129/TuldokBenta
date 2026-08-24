@@ -145,7 +145,7 @@ const performRefresh = async () => {
  * hooks this replaced caught everything and left the UI showing an empty list.
  *
  * @param {string} path path below API_BASE_URL, e.g. "/inventory"
- * @param {{ method?: string, body?: unknown, signal?: AbortSignal }} [options]
+ * @param {{ method?: string, body?: unknown, rawBody?: Blob, signal?: AbortSignal }} [options]
  * @returns {Promise<any>} the parsed JSON body, or null for 204
  */
 export const apiRequest = async (
@@ -153,23 +153,40 @@ export const apiRequest = async (
   // `_retry` is internal and never passed by a caller. It is what makes "at most
   // one retry per 401" structural rather than a matter of care: the retried
   // request cannot itself retry.
-  { method = "GET", body, signal, _retry = false } = {}
+  //
+  // `rawBody` is a File or Blob sent as-is, for the one thing this API takes that
+  // is not JSON: a shop's receipt logo. It goes through here rather than around
+  // it so an upload inherits the Authorization header, the X-Shop-Id header, the
+  // single-flight 401 refresh and the 403 shop recovery — all of which a bare
+  // fetch would have had to reimplement or, more likely, quietly omit.
+  //
+  // A Blob is re-readable, which is what makes it safe to replay on the retry
+  // below. A stream would not be, and must not be passed here.
+  { method = "GET", body, rawBody, signal, _retry = false } = {}
 ) => {
   const session = isCredentialPath(path) ? null : getSession();
   const shopId = isShopExemptPath(path) ? null : getActiveShopId();
+
+  // The image's own type, which is also what the server matches on to decide
+  // whether to parse the body at all.
+  const contentType = rawBody
+    ? { "Content-Type": rawBody.type }
+    : body === undefined
+      ? null
+      : { "Content-Type": "application/json" };
 
   let res;
   try {
     res = await fetch(`${API_BASE_URL}${path}`, {
       method,
       headers: {
-        ...(body === undefined ? null : { "Content-Type": "application/json" }),
+        ...contentType,
         ...(session?.accessToken
           ? { Authorization: `Bearer ${session.accessToken}` }
           : null),
         ...(shopId ? { "X-Shop-Id": String(shopId) } : null),
       },
-      body: body === undefined ? undefined : JSON.stringify(body),
+      body: rawBody ?? (body === undefined ? undefined : JSON.stringify(body)),
       signal,
     });
   } catch (error) {
@@ -186,7 +203,7 @@ export const apiRequest = async (
     const outcome = await refreshInFlight;
 
     if (outcome === REFRESHED) {
-      return apiRequest(path, { method, body, signal, _retry: true });
+      return apiRequest(path, { method, body, rawBody, signal, _retry: true });
     }
 
     // Unreachable server: the session may well still be good. Fail this one

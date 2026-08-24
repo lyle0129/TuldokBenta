@@ -15,6 +15,11 @@ import { useActiveShopId } from "./useActiveShop";
  * Resolution order is cached snapshot, then the built-in seed — so a device
  * that has never been online can still take a sale.
  *
+ * The shop's receipt profile rides along in the same snapshot, which is what
+ * lets an offline receipt print with a header. It lives here rather than under a
+ * key of its own for the reason in the note below: one key to migrate is safer
+ * than two.
+ *
  * NOTE: OFFLINE_CATALOG_KEY is not yet namespaced per shop, so a user who
  * switches shops still sees the previous shop's saved catalog here until the
  * next refresh. Ticket 11 owns that key's migration — it has to move
@@ -24,7 +29,7 @@ import { useActiveShopId } from "./useActiveShop";
  * under another's session.
  *
  * @returns {{
- *   inventory: Array, services: Array,
+ *   inventory: Array, services: Array, shop: Object|null,
  *   lastSyncedAt: string|null, isSeed: boolean,
  *   refresh: () => Promise<boolean>, isRefreshing: boolean, error: string|null,
  * }}
@@ -36,10 +41,19 @@ export const useOfflineCatalog = () => {
       return {
         inventory: cached.inventory || [],
         services: cached.services || [],
+        // Absent on a snapshot written before ticket 09. A receipt then prints
+        // without a header rather than not printing at all, which is the same
+        // thing that happens on a device that has never been online.
+        shop: cached.shop || null,
         syncedAt: cached.syncedAt || null,
       };
     }
-    return { inventory: SEED_INVENTORY, services: SEED_SERVICES, syncedAt: null };
+    return {
+      inventory: SEED_INVENTORY,
+      services: SEED_SERVICES,
+      shop: null,
+      syncedAt: null,
+    };
   });
 
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -62,16 +76,22 @@ export const useOfflineCatalog = () => {
       // used to be — the only calls in the app that bypassed it. Left alone they
       // would send no Authorization header, 401 quietly, and leave this page
       // showing a stale catalog with no visible reason.
-      const [inventory, services] = await Promise.all([
+      const [inventory, services, shop] = await Promise.all([
         apiRequest("/inventory"),
         apiRequest("/services"),
+        apiRequest("/shop-profile"),
       ]);
 
       if (!Array.isArray(inventory) || !Array.isArray(services)) {
         throw new Error("Unexpected response shape");
       }
 
-      const next = { inventory, services, syncedAt: new Date().toISOString() };
+      const next = {
+        inventory,
+        services,
+        shop,
+        syncedAt: new Date().toISOString(),
+      };
       writeJSON(OFFLINE_CATALOG_KEY, next);
       setCatalog(next);
       return true;
@@ -89,6 +109,7 @@ export const useOfflineCatalog = () => {
   return {
     inventory: catalog.inventory,
     services: catalog.services,
+    shop: catalog.shop,
     lastSyncedAt: catalog.syncedAt,
     isSeed: catalog.syncedAt === null,
     refresh,

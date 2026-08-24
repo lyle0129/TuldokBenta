@@ -4,6 +4,7 @@ import {
   CheckCircle2,
   CreditCard,
   Package,
+  Receipt,
   ScrollText,
   ShoppingCart,
   Store,
@@ -59,6 +60,11 @@ export const NAV_GROUPS = [
       { to: "/inventory", label: "Inventory", icon: Package },
       { to: "/services", label: "Services", icon: Wrench },
       { to: "/payment-methods", label: "Payment Methods", icon: CreditCard },
+      // A manager's own shop only. The super admin edits any shop's receipt from
+      // the console instead, which is why this is manager-and-up rather than
+      // super-admin-only: it is the one receipt surface a manager can reach
+      // without one.
+      { to: "/shop-settings", label: "Receipt Settings", icon: Receipt },
     ],
   },
   {

@@ -213,6 +213,22 @@ export async function initDB() {
       )
     `;
 
+    // The uploaded logo, added by ticket 09.
+    //
+    // `logo_url` above is deliberately kept. It is what Shop 1 was seeded with
+    // and it stays as the fallback the receipt falls back to when no blob has
+    // been uploaded, so the rollout needs nobody to re-upload anything for the
+    // existing receipt to keep looking exactly as it does today.
+    //
+    // The bytes live here rather than behind a URL because a receipt is printed
+    // into a popup whose <img> can send no Authorization or X-Shop-Id header,
+    // and because the offline page must still print a header with no connection.
+    // Both are answered by shipping the image inline as a base64 data URI, which
+    // needs the bytes to be ours in the first place.
+    await sql`ALTER TABLE shops ADD COLUMN IF NOT EXISTS logo_blob BYTEA`;
+    await sql`ALTER TABLE shops ADD COLUMN IF NOT EXISTS logo_mime VARCHAR(50)`;
+    await sql`ALTER TABLE shops ADD COLUMN IF NOT EXISTS logo_updated_at TIMESTAMP`;
+
     // The shop that already exists, seeded with the exact values hardcoded in
     // webapp/tuldokbenta_web/src/utils/printInvoice.js today, so a receipt
     // printed after this migration is identical to one printed before it.

@@ -17,6 +17,12 @@ import {
   deleteUser,
 } from "../controllers/adminUsersController.js";
 import { correctSaleDates } from "../controllers/adminSalesController.js";
+import {
+  getShopLogo,
+  uploadShopLogo,
+  deleteShopLogo,
+} from "../controllers/shopProfileController.js";
+import { rawImage } from "../utils/shopLogo.js";
 import { requireRealAuth, requireRole } from "../middleware/auth.js";
 
 const router = Router();
@@ -58,6 +64,18 @@ router.post("/shops", createShop);
 router.put("/shops/:id", updateShop);
 router.post("/shops/:id/deactivate", setShopActive(false));
 router.post("/shops/:id/reactivate", setShopActive(true));
+
+// The receipt logo, shared with the shop-scoped mount at /api/shop-profile/logo.
+// The same three handlers serve both: there they take the shop from resolveShop,
+// here from the path, which is the ordinary-parameter pattern every route in this
+// file already uses.
+//
+// GET is logo-only rather than a whole row because the list above deliberately
+// carries `has_logo` instead of the image — a console showing ten shops must not
+// fetch ten images to render ten cards.
+router.get("/shops/:id/logo", getShopLogo);
+router.post("/shops/:id/logo", rawImage, uploadShopLogo);
+router.delete("/shops/:id/logo", deleteShopLogo);
 
 // ── Users ──
 router.get("/users", listUsers);

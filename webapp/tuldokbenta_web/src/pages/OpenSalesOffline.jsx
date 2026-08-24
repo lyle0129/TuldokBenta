@@ -58,9 +58,15 @@ const OpenSalesOffline = () => {
 
   // Real inventory and services, cached from the server. Replaces a hardcoded
   // list that went stale as soon as anyone edited Inventory.
+  //
+  // `shop` is the receipt header, cached in the same snapshot so a receipt
+  // printed with no connection still carries one. From the snapshot rather than
+  // from useShopProfile because this page deliberately runs no list queries —
+  // the whole point of it is that it works when nothing can be fetched.
   const {
     inventory,
     services,
+    shop,
     lastSyncedAt,
     isSeed,
     refresh: refreshCatalog,
@@ -458,7 +464,7 @@ const OpenSalesOffline = () => {
                     </button>
                     <button
                       type="button"
-                      onClick={() => printInvoice(s)}
+                      onClick={() => printInvoice(s, shop)}
                       className={rowActionClass(rowActionAccents.purple)}
                     >
                       Print
@@ -547,7 +553,7 @@ const OpenSalesOffline = () => {
         onConfirm={() => {
           // The server's row, not the queued one: it carries the number the sale
           // actually has and a real created_at.
-          printInvoice(reassigned.created);
+          printInvoice(reassigned.created, shop);
           setReassigned(null);
         }}
       />

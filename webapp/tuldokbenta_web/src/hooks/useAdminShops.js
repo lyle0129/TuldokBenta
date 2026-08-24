@@ -57,7 +57,23 @@ export const useAdminShops = () => {
     onSuccess: invalidate,
   });
 
-  const mutations = [createMutation, updateMutation, activeMutation];
+  /**
+   * The receipt logo, uploaded as bytes or removed.
+   *
+   * Its own mutation rather than part of updateShop, because the image does not
+   * travel in the JSON body — it goes out raw, with the file's own type as the
+   * Content-Type, which is what the server matches on to decide the body is an
+   * image at all.
+   */
+  const logoMutation = useMutation({
+    mutationFn: ({ id, file }) =>
+      file
+        ? apiRequest(`/admin/shops/${id}/logo`, { method: "POST", rawBody: file })
+        : apiRequest(`/admin/shops/${id}/logo`, { method: "DELETE" }),
+    onSuccess: invalidate,
+  });
+
+  const mutations = [createMutation, updateMutation, activeMutation, logoMutation];
 
   const resetErrors = () => mutations.forEach((m) => m.reset());
 
@@ -100,6 +116,24 @@ export const useAdminShops = () => {
     }
   };
 
+  /**
+   * Stores or clears a shop's logo. `file` of null removes it.
+   *
+   * Called after the profile save rather than alongside it: the two are separate
+   * requests, and doing them in order means a rejected image cannot also lose
+   * the address the admin just typed.
+   */
+  const saveShopLogo = async (id, file) => {
+    resetErrors();
+    try {
+      await logoMutation.mutateAsync({ id, file });
+      return true;
+    } catch (err) {
+      console.error("Error saving shop logo:", err);
+      return false;
+    }
+  };
+
   return {
     shops,
     isLoading,
@@ -109,8 +143,20 @@ export const useAdminShops = () => {
     createShop,
     updateShop,
     setShopActive,
+    saveShopLogo,
   };
 };
+
+/**
+ * One shop's logo, fetched on demand.
+ *
+ * Not part of the list query on purpose. `GET /admin/shops` carries `has_logo`
+ * rather than the image, so a console showing ten shops does not drag ten
+ * images across to render ten cards — this is how the one modal that needs to
+ * show an image gets it.
+ */
+export const fetchShopLogo = (id, signal) =>
+  apiRequest(`/admin/shops/${id}/logo`, { signal });
 
 /** `{ [id]: shop }`, for screens that hold a shop id and need its name. */
 export const shopsById = (shops = []) =>

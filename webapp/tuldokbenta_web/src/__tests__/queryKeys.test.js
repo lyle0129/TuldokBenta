@@ -35,6 +35,9 @@ const applyAll = (shop, day, from, to) => [
   ["inventory", queryKeys.inventory(shop)],
   ["services", queryKeys.services(shop)],
   ["paymentMethods", queryKeys.paymentMethods(shop)],
+  // Shop-scoped, not global: the receipt header is the thing ticket 09 moved
+  // into the database precisely so that two shops print different ones.
+  ["shopProfile", queryKeys.shopProfile(shop)],
   ["openSales", queryKeys.openSales(shop)],
   ["nextInvoice", queryKeys.nextInvoice(shop)],
   ["closedSales", queryKeys.closedSales(shop)],

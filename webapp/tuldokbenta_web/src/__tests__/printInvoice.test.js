@@ -14,7 +14,10 @@ import { printInvoice } from '../utils/printInvoice.js'
 // Helper: call printInvoice and capture the full HTML written to the new tab.
 // Returns the captured HTML string.
 // ---------------------------------------------------------------------------
-function captureInvoiceHtml(sale) {
+// `shop` is optional throughout, and every existing caller below omits it — which
+// is itself the check that a till whose profile has not loaded still prints the
+// sale rather than throwing (Requirement 3.3).
+function captureInvoiceHtml(sale, shop) {
   let captured = ''
 
   const fakeDoc = {
@@ -32,7 +35,7 @@ function captureInvoiceHtml(sale) {
   // that reads `window` at call time rather than closing over it at module load,
   // so the stub above is what it sees. This used to be a require(), which broke
   // as soon as printInvoice grew an ESM import of its own.
-  printInvoice(sale)
+  printInvoice(sale, shop)
 
   return captured
 }
@@ -115,7 +118,7 @@ const paidSaleArb = unpaidSaleArb.chain((sale) =>
 // We inline the logic here rather than using captureInvoiceHtml() above so
 // that we can use ESM dynamic imports which are required for Vitest.
 // ---------------------------------------------------------------------------
-async function renderSale(sale) {
+async function renderSale(sale, shop) {
   vi.resetModules()
 
   let captured = ''
@@ -132,7 +135,7 @@ async function renderSale(sale) {
 
   try {
     const { printInvoice } = await import('../utils/printInvoice.js')
-    printInvoice(sale)
+    printInvoice(sale, shop)
   } finally {
     window.open = origOpen
   }
@@ -373,5 +376,182 @@ describe('printInvoice — freebie lines', () => {
       ],
     })
     expect(html).toContain('Ariel x1')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Ticket 09 — the receipt header comes from the shop's profile.
+//
+// These four pin the properties the design names P1–P4. Everything above this
+// point calls printInvoice with one argument and asserts on line items, totals,
+// escaping and freebie de-duplication — none of it mentions a shop name, address
+// or phone number. That is why a passing suite after this change is real
+// evidence the line-item behaviour did not move.
+// ---------------------------------------------------------------------------
+
+/** A sale to hang a header off. Fixed, because these properties vary the shop. */
+const SALE = {
+  invoice_number: 'INV-0001',
+  created_at: '2024-01-01T00:00:00Z',
+  items: [{ type: 'item', item_name: 'Ariel', qty: 1, price: 10 }],
+}
+
+/** An arbitrary receipt profile, any field of which may be blank or absent. */
+const profileArb = fc.record({
+  name: fc.option(safeString, { nil: undefined }),
+  address_line: fc.option(safeString, { nil: undefined }),
+  contact_number: fc.option(safeString, { nil: undefined }),
+  receipt_footer: fc.option(safeString, { nil: undefined }),
+  logo_data_url: fc.option(safeString, { nil: undefined }),
+  logo_url: fc.option(safeString, { nil: undefined }),
+  receipt_paper_width_mm: fc.integer({ min: 20, max: 210 }),
+})
+
+describe('P1 — no shop literal survives', () => {
+  it('prints nothing of the old hardcoded shop unless the profile said so', () => {
+    const LITERALS = [
+      'SPINCREDIBLE',
+      'Rizal Street Ext',
+      '0962-683-7430',
+      'i.ibb.co',
+    ]
+
+    fc.assert(
+      fc.property(profileArb, (shop) => {
+        const html = captureInvoiceHtml(SALE, shop)
+        const ownText = JSON.stringify(shop)
+
+        return LITERALS.every(
+          (literal) => !html.includes(literal) || ownText.includes(literal)
+        )
+      }),
+      { numRuns: 100 }
+    )
+  })
+})
+
+describe('P2 — every profile field is escaped', () => {
+  it('never emits a raw < > " or & from a profile field', () => {
+    const nasty = fc.constantFrom(
+      '<script>alert(1)</script>',
+      '" onerror="alert(1)',
+      'Tom & Jerry',
+      "it's <b>bold</b>"
+    )
+
+    fc.assert(
+      fc.property(
+        fc.record({
+          name: nasty,
+          address_line: nasty,
+          contact_number: nasty,
+          receipt_footer: nasty,
+        }),
+        (shop) => {
+          const html = captureInvoiceHtml(SALE, shop)
+
+          // Every one of them must appear, and only in its escaped form.
+          return Object.values(shop).every(
+            (value) => html.includes(escaped(value)) && !html.includes(value)
+          )
+        }
+      ),
+      { numRuns: 100 }
+    )
+  })
+})
+
+describe('P3 — an empty field produces no element', () => {
+  it('emits no blank <p>, <h2> or <img> for a profile with nothing in it', () => {
+    // A blank line is visible on a 58mm roll, so an absent address must cost no
+    // paper at all.
+    const html = captureInvoiceHtml(SALE, {
+      name: '',
+      address_line: '',
+      contact_number: '',
+      receipt_footer: '',
+      logo_url: '',
+      logo_data_url: '',
+    })
+
+    expect(html).not.toMatch(/<p style="margin:0;"><\/p>/)
+    expect(html).not.toMatch(/<h2[^>]*><\/h2>/)
+    expect(html).not.toContain('<img')
+  })
+
+  it('emits no <img> when neither logo field is set', () => {
+    const html = captureInvoiceHtml(SALE, { name: 'Shop' })
+    expect(html).not.toContain('<img')
+    expect(html).toContain('Shop')
+  })
+
+  it('prefers the uploaded logo over a legacy logo_url', () => {
+    const html = captureInvoiceHtml(SALE, {
+      logo_data_url: 'data:image/png;base64,AAAA',
+      logo_url: 'https://example.test/old.png',
+    })
+
+    expect(html).toContain('data:image/png;base64,AAAA')
+    expect(html).not.toContain('example.test')
+  })
+
+  it('falls back to logo_url when nothing has been uploaded', () => {
+    const html = captureInvoiceHtml(SALE, {
+      logo_url: 'https://example.test/old.png',
+    })
+
+    expect(html).toContain('https://example.test/old.png')
+  })
+})
+
+describe('P4 — a missing profile still prints the sale', () => {
+  it('renders the line items and total with no shop at all', () => {
+    fc.assert(
+      fc.property(
+        mixedItemsArb,
+        fc.constantFrom(undefined, null),
+        (items, shop) => {
+          const sale = { ...SALE, items }
+          const html = captureInvoiceHtml(sale, shop)
+
+          const total = items
+            .reduce((sum, it) => sum + Number(it.price) * (it.qty || 1), 0)
+            .toFixed(2)
+
+          return html.includes('Total') && html.includes(total)
+        }
+      ),
+      { numRuns: 100 }
+    )
+  })
+})
+
+describe('the paper width comes from the profile', () => {
+  it('uses the shop’s width, and 58mm when it has none', () => {
+    expect(captureInvoiceHtml(SALE, { receipt_paper_width_mm: 80 })).toContain(
+      'width: 80mm'
+    )
+    expect(captureInvoiceHtml(SALE, {})).toContain('width: 58mm')
+    expect(captureInvoiceHtml(SALE, undefined)).toContain('width: 58mm')
+  })
+})
+
+describe('buildReceiptDocument is what printInvoice writes', () => {
+  it('produces the same document the printer receives', async () => {
+    const { buildReceiptDocument } = await import('../utils/printInvoice.js')
+    const shop = { name: 'Shop', receipt_footer: 'Thanks!' }
+
+    expect(captureInvoiceHtml(SALE, shop)).toBe(
+      buildReceiptDocument(SALE, shop)
+    )
+  })
+
+  it('omits the Print button when asked, for the settings-page preview', async () => {
+    const { buildReceiptDocument } = await import('../utils/printInvoice.js')
+
+    expect(buildReceiptDocument(SALE, {}, { printButton: false })).not.toContain(
+      'window.print()'
+    )
+    expect(buildReceiptDocument(SALE, {})).toContain('window.print()')
   })
 })

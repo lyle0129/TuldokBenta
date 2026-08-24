@@ -1,5 +1,5 @@
 // components/admin/ShopsList.jsx
-import { Pencil } from "lucide-react";
+import { Pencil, Receipt } from "lucide-react";
 
 /** Same card and button recipe as PaymentMethodsList, so the Console reads as one app. */
 const actionClass = (colors) =>
@@ -14,7 +14,13 @@ const actionClass = (colors) =>
  * it hides the shop from every picker while leaving its rows exactly where they
  * are, and it is reversible.
  */
-const ShopsList = ({ shops, onEdit, onToggleActive, emptyMessage = "No shops yet." }) => {
+const ShopsList = ({
+  shops,
+  onEdit,
+  onPreview,
+  onToggleActive,
+  emptyMessage = "No shops yet.",
+}) => {
   if (shops.length === 0) {
     return (
       <p className="text-gray-500 dark:text-gray-400 text-center italic py-8">
@@ -82,6 +88,18 @@ const ShopsList = ({ shops, onEdit, onToggleActive, emptyMessage = "No shops yet
               )}
             >
               {shop.is_active ? "Deactivate" : "Reactivate"}
+            </button>
+            {/* Purple, because that is the colour Print is on every sales page —
+                this shows the same document those buttons produce. */}
+            <button
+              type="button"
+              onClick={() => onPreview(shop)}
+              className={actionClass(
+                "bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-200 border-purple-200 dark:border-purple-700 hover:bg-purple-200 dark:hover:bg-purple-800"
+              )}
+            >
+              <Receipt size={16} aria-hidden="true" />
+              Receipt
             </button>
             <button
               type="button"

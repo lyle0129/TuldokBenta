@@ -24,6 +24,7 @@ import inventoryRouter from "./routes/inventory.js";
 import openSalesRouter from "./routes/openSales.js";
 import closedSalesRouter from "./routes/closedSales.js";
 import paymentMethodsRouter from "./routes/paymentMethods.js";
+import shopProfileRouter from "./routes/shopProfile.js";
 import authRouter from "./routes/auth.js";
 import adminRouter from "./routes/admin.js";
 
@@ -91,10 +92,16 @@ app.use("/api/services", requireAuth, resolveShop, servicesRouter);
 app.use("/api/inventory", requireAuth, resolveShop, inventoryRouter);
 app.use("/api/closed-sales", requireAuth, resolveShop, closedSalesRouter);
 app.use("/api/payment-methods", requireAuth, resolveShop, paymentMethodsRouter);
+// A manager edits their own shop's receipt here rather than under /api/admin.
+// That router takes a shop id as an ordinary parameter, which is safe only
+// because every caller reaching it already reaches every shop — so a
+// manager-reachable route there would break the reasoning. Here the shop comes
+// from resolveShop and a manager cannot name one they are not assigned to.
+app.use("/api/shop-profile", requireAuth, resolveShop, shopProfileRouter);
 
-// Last of the five. Its paths (/open-sales, /pay-sale/:id, …) are not under a
+// Last of the six. Its paths (/open-sales, /pay-sale/:id, …) are not under a
 // prefix of their own, so it has to mount on bare /api — which matches every
-// request the four specific mounts above also match. Registered ahead of them it
+// request the five specific mounts above also match. Registered ahead of them it
 // would run requireAuth and resolveShop on those requests too, fall through
 // unmatched, and make them resolve their scope twice; resolveShop's super-admin
 // branch is a database query, so that is a real second round trip per request.

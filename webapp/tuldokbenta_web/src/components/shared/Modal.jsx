@@ -25,6 +25,10 @@ const SIZES = {
   md: "sm:max-w-md",
   lg: "sm:max-w-lg",
   xl: "sm:max-w-2xl",
+  // Wide enough to stand a form and a receipt preview side by side. Below `sm:`
+  // it is the same full-width sheet as everything else, and the two columns
+  // stack.
+  "2xl": "sm:max-w-4xl",
 };
 
 const Modal = ({

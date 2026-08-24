@@ -1,8 +1,9 @@
 // components/admin/AddShopModal.jsx
 import { useEffect, useState } from "react";
 import Modal from "../shared/Modal";
+import ReceiptPreview from "../shared/ReceiptPreview";
 import ShopProfileFields from "./ShopProfileFields";
-import { emptyProfile, profileBody } from "../../utils/shopProfile";
+import { emptyProfile, profileBody, profilePreview } from "../../utils/shopProfile";
 // The shop slug and a payment method's code are normalised by the same rule on
 // the server, so they share the one implementation here too.
 import { slugifyCode } from "../../utils/paymentMethods";
@@ -36,10 +37,15 @@ const AddShopModal = ({
   const [form, setForm] = useState(EMPTY);
   const [slugTouched, setSlugTouched] = useState(false);
 
+  // The shop has no id to upload against yet, so the picked file is held here
+  // and sent by the page immediately after the create returns one.
+  const [pendingLogo, setPendingLogo] = useState(null);
+
   useEffect(() => {
     if (open) {
       setForm(EMPTY);
       setSlugTouched(false);
+      setPendingLogo(null);
     }
   }, [open]);
 
@@ -49,9 +55,14 @@ const AddShopModal = ({
 
   const isValid = name !== "" && slug !== "" && slug.length <= 50 && !duplicate;
 
+  const pickLogo = (file, dataUrl) => {
+    setPendingLogo(file);
+    setForm((current) => ({ ...current, logo_data_url: dataUrl }));
+  };
+
   const submit = () => {
     if (!isValid || isSubmitting) return;
-    onSubmit({ name, slug, ...profileBody(form) });
+    onSubmit({ name, slug, ...profileBody(form) }, pendingLogo);
   };
 
   return (
@@ -60,7 +71,7 @@ const AddShopModal = ({
       onClose={onClose}
       title="New Shop"
       accent="blue"
-      size="lg"
+      size="2xl"
       variant="sheet"
       footer={
         <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-3">
@@ -84,64 +95,79 @@ const AddShopModal = ({
         </div>
       )}
 
-      <form
-        className="space-y-4"
-        onSubmit={(e) => {
-          e.preventDefault();
-          submit();
-        }}
-      >
-        <div>
-          <label className={labelClass} htmlFor="add-shop-name">
-            Shop Name
-          </label>
-          <input
-            id="add-shop-name"
-            type="text"
-            autoFocus
-            value={form.name}
-            onChange={(e) => setForm({ ...form, name: e.target.value })}
-            placeholder="e.g. Spincredible Cubao"
-            className={inputClass}
-          />
-        </div>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <form
+          className="space-y-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            submit();
+          }}
+        >
+          <div>
+            <label className={labelClass} htmlFor="add-shop-name">
+              Shop Name
+            </label>
+            <input
+              id="add-shop-name"
+              type="text"
+              autoFocus
+              value={form.name}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+              placeholder="e.g. Spincredible Cubao"
+              className={inputClass}
+            />
+          </div>
 
-        <div>
-          <label className={labelClass} htmlFor="add-shop-slug">
-            Slug
-          </label>
-          <input
-            id="add-shop-slug"
-            type="text"
-            value={slug}
-            onChange={(e) => {
-              setSlugTouched(true);
-              setForm({ ...form, slug: e.target.value });
-            }}
-            className={`${inputClass} font-mono`}
-          />
-          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-            The key this shop's data is filed under. This cannot be changed later
-            — the name above can be edited any time.
-          </p>
-          {duplicate && (
-            <p className={`${noticeClass} mt-2`}>
-              A shop with the slug “{slug}” already exists. Edit that one instead.
+          <div>
+            <label className={labelClass} htmlFor="add-shop-slug">
+              Slug
+            </label>
+            <input
+              id="add-shop-slug"
+              type="text"
+              value={slug}
+              onChange={(e) => {
+                setSlugTouched(true);
+                setForm({ ...form, slug: e.target.value });
+              }}
+              className={`${inputClass} font-mono`}
+            />
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+              The key this shop's data is filed under. This cannot be changed
+              later — the name above can be edited any time.
             </p>
-          )}
-        </div>
+            {duplicate && (
+              <p className={`${noticeClass} mt-2`}>
+                A shop with the slug “{slug}” already exists. Edit that one
+                instead.
+              </p>
+            )}
+          </div>
 
-        {/* Requirement 2.6. The payment-method seed in initDB.js fires once ever
-            and its rows belong to Shop 1, so createShop seeds this shop's own
-            pair in the same transaction — worth saying, because an empty pay
-            dialog on a new branch has no obvious cause. */}
-        <p className={noticeClass}>
-          A new shop starts with Cash and GCash as its payment methods, and an
-          empty inventory and service list. Nothing is copied from another shop.
-        </p>
+          {/* Requirement 2.6. The payment-method seed in initDB.js fires once
+              ever and its rows belong to Shop 1, so createShop seeds this shop's
+              own pair in the same transaction — worth saying, because an empty
+              pay dialog on a new branch has no obvious cause. */}
+          <p className={noticeClass}>
+            A new shop starts with Cash and GCash as its payment methods, and an
+            empty inventory and service list. Nothing is copied from another
+            shop.
+          </p>
 
-        <ShopProfileFields form={form} onChange={setForm} idPrefix="add-shop" />
-      </form>
+          <ShopProfileFields
+            form={form}
+            onChange={setForm}
+            onPickLogo={pickLogo}
+            idPrefix="add-shop"
+            disabled={isSubmitting}
+          />
+        </form>
+
+        <ReceiptPreview
+          shop={profilePreview(form, name || "Your shop")}
+          className="lg:sticky lg:top-0"
+        />
+      </div>
     </Modal>
   );
 };

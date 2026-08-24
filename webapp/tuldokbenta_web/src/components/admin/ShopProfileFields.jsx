@@ -1,16 +1,21 @@
 // components/admin/ShopProfileFields.jsx
+import LogoField from "../shared/LogoField";
 import { labelClass, inputClass } from "../shared/fieldStyles";
 
 /**
- * The receipt profile fields, shared by the add and edit modals.
+ * The receipt profile fields, shared by the add and edit modals and by the
+ * manager-facing shop settings page.
  *
- * The form-state helpers these pair with live in utils/shopProfile.js.
+ * The form-state helpers these pair with live in utils/shopProfile.js. These are
+ * the columns a receipt prints, so anything changed here shows up immediately in
+ * the ReceiptPreview beside them.
  *
- * These columns are what ticket 09 will print receipts from. Until then they
- * are recorded and unused, which is fine — a shop created now should not need
- * revisiting when that lands.
+ * `onPickLogo` is separate from `onChange` because a file input carries its value
+ * on `e.target.files`, not `e.target.value`, so it cannot go through the `set`
+ * helper below — and because the File itself has to reach the caller, which
+ * uploads it, while only its data URI belongs in the form.
  */
-const ShopProfileFields = ({ form, onChange, idPrefix }) => {
+const ShopProfileFields = ({ form, onChange, onPickLogo, idPrefix, disabled = false }) => {
   const field = (key) => `${idPrefix}-${key}`;
   const set = (key) => (e) => onChange({ ...form, [key]: e.target.value });
 
@@ -44,19 +49,13 @@ const ShopProfileFields = ({ form, onChange, idPrefix }) => {
         />
       </div>
 
-      <div>
-        <label className={labelClass} htmlFor={field("logo")}>
-          Logo URL
-        </label>
-        <input
-          id={field("logo")}
-          type="text"
-          value={form.logo_url}
-          onChange={set("logo_url")}
-          placeholder="https://…"
-          className={inputClass}
-        />
-      </div>
+      <LogoField
+        dataUrl={form.logo_data_url}
+        fallbackUrl={form.logo_url}
+        onPick={onPickLogo}
+        disabled={disabled}
+        idPrefix={field("logo")}
+      />
 
       <div>
         <label className={labelClass} htmlFor={field("footer")}>

@@ -7,6 +7,7 @@ import { isFreeLine } from "../../utils/buildSaleItems";
 import { formatCurrency, formatDateTime, saleTotal } from "../../utils/format";
 import { useAuth } from "../../hooks/useAuth";
 import { usePaymentMethods } from "../../hooks/usePaymentMethods";
+import { useShopProfile } from "../../hooks/useShopProfile";
 import { buildMethodLookup, resolveMethod } from "../../utils/paymentMethods";
 import {
   saleCardClass,
@@ -32,6 +33,9 @@ const ListClosedSales = ({
   // regardless, since /api/admin sits behind requireRole("super_admin").
   const session = useAuth();
   const isSuperAdmin = session?.user?.role === "super_admin";
+
+  // The receipt's header, read the same way the payment methods below are.
+  const { shopProfile } = useShopProfile();
 
   // Rows store the method code; this turns it back into the admin's label.
   const { paymentMethods } = usePaymentMethods();
@@ -142,7 +146,7 @@ const ListClosedSales = ({
 
               <button
                 type="button"
-                onClick={() => printInvoice(sale)}
+                onClick={() => printInvoice(sale, shopProfile)}
                 className={rowActionClass(rowActionAccents.purple)}
               >
                 Print

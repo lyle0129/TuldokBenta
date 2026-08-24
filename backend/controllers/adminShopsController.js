@@ -24,29 +24,16 @@
 
 import { sql } from "../config/db.js";
 import { auditQuery, diff, ACTIONS } from "../utils/audit.js";
-
-/** Postgres unique_violation — a duplicate slug is the caller's problem, not a 500. */
-const UNIQUE_VIOLATION = "23505";
-
-/**
- * The Postgres error code, whether the driver threw it directly or wrapped it.
- *
- * A failing statement inside sql.transaction([...]) does not always surface the
- * same shape as a failing standalone query, and a duplicate slug answered with a
- * 500 would be indistinguishable from a real fault.
- */
-const pgCode = (error) => error?.code ?? error?.sourceError?.code ?? null;
-
-/** The receipt profile, plus the name. Everything a PUT is allowed to touch. */
-const EDITABLE = [
-  "name",
-  "address_line",
-  "contact_number",
-  "logo_url",
-  "receipt_footer",
-  "receipt_paper_width_mm",
-  "invoice_prefix",
-];
+import { shopColumns } from "../utils/shopLogo.js";
+import {
+  UNIQUE_VIOLATION,
+  pgCode,
+  EDITABLE,
+  text,
+  readProfile,
+  mergeProfile,
+  prefixWarning,
+} from "../utils/shopProfile.js";
 
 /**
  * The stable key a shop is filed under, normalised the same way
@@ -61,66 +48,20 @@ const slugify = (value) =>
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
 
-/** Trimmed text, or null for absent/blank — the shape the nullable columns want. */
-const text = (value) => {
-  if (value === undefined || value === null) return null;
-  const trimmed = String(value).trim();
-  return trimmed === "" ? null : trimmed;
-};
-
-/**
- * Validates the receipt profile and returns it, or throws a message.
- *
- * Shared by create and update so the two cannot drift into accepting different
- * things — the update path is the one people forget.
- */
-const readProfile = (body) => {
-  const paperWidth =
-    body.receipt_paper_width_mm === undefined || body.receipt_paper_width_mm === null
-      ? null
-      : Number(body.receipt_paper_width_mm);
-
-  if (paperWidth !== null && (!Number.isInteger(paperWidth) || paperWidth < 20 || paperWidth > 210)) {
-    // 58mm and 80mm are the two thermal rolls in the wild; the range is wide
-    // enough not to argue with anybody's printer and narrow enough to catch a
-    // value typed in inches or points.
-    return { error: "Receipt width must be a whole number of millimetres between 20 and 210" };
-  }
-
-  const prefix = text(body.invoice_prefix);
-  if (prefix !== null && prefix.length > 10) {
-    return { error: "Invoice prefix must be 10 characters or fewer" };
-  }
-
-  return {
-    profile: {
-      address_line: text(body.address_line),
-      contact_number: text(body.contact_number),
-      logo_url: text(body.logo_url),
-      receipt_footer: text(body.receipt_footer),
-      receipt_paper_width_mm: paperWidth,
-      invoice_prefix: prefix,
-    },
-  };
-};
-
-/** Whether this shop has ever taken a sale, in either table. */
-const hasSales = async (shopId) => {
-  const [row] = await sql`
-    SELECT (EXISTS (SELECT 1 FROM open_sales   WHERE shop_id = ${shopId})
-         OR EXISTS (SELECT 1 FROM closed_sales WHERE shop_id = ${shopId})) AS any_sales
-  `;
-  return Boolean(row?.any_sales);
-};
-
 // GET /api/admin/shops
 export const listShops = async (req, res) => {
   try {
     // Inactive shops included on purpose: this is the screen you reactivate one
     // from, and a shop missing from the only list that shows shops is a support
     // call rather than a feature.
+    //
+    // An explicit column list rather than the SELECT * this used to be. Ticket
+    // 09 put the logo's bytes in this table, and a console listing ten shops
+    // would otherwise drag five megabytes of image through the driver to render
+    // ten cards. `has_logo` is what the list actually needs; the image itself is
+    // fetched one shop at a time from /shops/:id/logo.
     const shops = await sql`
-      SELECT * FROM shops ORDER BY is_active DESC, name ASC
+      SELECT ${shopColumns} FROM shops ORDER BY is_active DESC, name ASC
     `;
     res.status(200).json(shops);
   } catch (error) {
@@ -184,7 +125,7 @@ export const createShop = async (req, res) => {
           ${created.contact_number}, ${created.logo_url}, ${created.receipt_footer},
           ${created.receipt_paper_width_mm}, ${created.invoice_prefix}
         )
-        RETURNING *
+        RETURNING ${shopColumns}
       `,
       // Seeded in the same transaction, because a shop that exists but cannot
       // take a payment is worse than a shop that failed to be created. The seed
@@ -229,7 +170,7 @@ export const updateShop = async (req, res) => {
     const id = Number(req.params.id);
     const body = req.body ?? {};
 
-    const [before] = await sql`SELECT * FROM shops WHERE id = ${id}`;
+    const [before] = await sql`SELECT ${shopColumns} FROM shops WHERE id = ${id}`;
     if (!before) return res.status(404).json({ message: "Shop not found" });
 
     // Immutable, and refused rather than silently ignored. Every row in five
@@ -245,20 +186,7 @@ export const updateShop = async (req, res) => {
     const { error, profile } = readProfile(body);
     if (error) return res.status(400).json({ message: error });
 
-    // Absent means "leave it", which is why each column is COALESCEd against
-    // itself rather than overwritten with a null the caller never sent.
-    const next = {
-      name,
-      address_line: body.address_line === undefined ? before.address_line : profile.address_line,
-      contact_number:
-        body.contact_number === undefined ? before.contact_number : profile.contact_number,
-      logo_url: body.logo_url === undefined ? before.logo_url : profile.logo_url,
-      receipt_footer:
-        body.receipt_footer === undefined ? before.receipt_footer : profile.receipt_footer,
-      receipt_paper_width_mm:
-        profile.receipt_paper_width_mm ?? before.receipt_paper_width_mm,
-      invoice_prefix: profile.invoice_prefix ?? before.invoice_prefix,
-    };
+    const next = mergeProfile(before, body, profile, name);
 
     const [rows] = await sql.transaction([
       sql`
@@ -271,7 +199,7 @@ export const updateShop = async (req, res) => {
                receipt_paper_width_mm = ${next.receipt_paper_width_mm},
                invoice_prefix = ${next.invoice_prefix}
          WHERE id = ${id}
-         RETURNING *
+         RETURNING ${shopColumns}
       `,
       auditQuery(req, {
         action: ACTIONS.shop.update,
@@ -284,19 +212,7 @@ export const updateShop = async (req, res) => {
     ]);
 
     const updated = rows[0];
-
-    // Numbering does not reset — ticket 02 decoupled invoice_seq from the
-    // displayed string precisely so it could not — but receipts either side of
-    // the change look unrelated, and only this shop's own history shows it.
-    // Surfaced as a field rather than a refusal: it is a real decision an owner
-    // is allowed to make, and ticket 10 puts the sentence in front of them.
-    const prefixChanged = next.invoice_prefix !== before.invoice_prefix;
-    const warning =
-      prefixChanged && (await hasSales(id))
-        ? "This shop already has sales. Existing invoice numbers keep their old prefix, " +
-          "so receipts before and after this change will look unrelated. Numbering itself " +
-          "does not restart."
-        : null;
+    const warning = await prefixWarning(id, before, next);
 
     res.status(200).json(warning ? { ...updated, warning } : updated);
   } catch (error) {
@@ -319,7 +235,7 @@ export const setShopActive = (active) => async (req, res) => {
   try {
     const id = Number(req.params.id);
 
-    const [before] = await sql`SELECT * FROM shops WHERE id = ${id}`;
+    const [before] = await sql`SELECT ${shopColumns} FROM shops WHERE id = ${id}`;
     if (!before) return res.status(404).json({ message: "Shop not found" });
 
     // Already in the requested state: answer with the row rather than writing a
@@ -329,7 +245,7 @@ export const setShopActive = (active) => async (req, res) => {
     }
 
     const [rows] = await sql.transaction([
-      sql`UPDATE shops SET is_active = ${active} WHERE id = ${id} RETURNING *`,
+      sql`UPDATE shops SET is_active = ${active} WHERE id = ${id} RETURNING ${shopColumns}`,
       auditQuery(req, {
         action: active ? ACTIONS.shop.reactivate : ACTIONS.shop.deactivate,
         shop_id: id,

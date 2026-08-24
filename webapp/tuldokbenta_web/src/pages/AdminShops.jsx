@@ -7,6 +7,7 @@ import ConfirmDialog from "../components/shared/ConfirmDialog";
 import ShopsList from "../components/admin/ShopsList";
 import AddShopModal from "../components/admin/AddShopModal";
 import EditShopModal from "../components/admin/EditShopModal";
+import ReceiptPreviewModal from "../components/admin/ReceiptPreviewModal";
 import { alertClass } from "../components/shared/fieldStyles";
 
 /**
@@ -27,12 +28,14 @@ const AdminShops = () => {
     createShop,
     updateShop,
     setShopActive,
+    saveShopLogo,
   } = useAdminShops();
 
   const [query, setQuery] = useState("");
   const [isAdding, setIsAdding] = useState(false);
   const [editingShop, setEditingShop] = useState(null);
   const [editWarning, setEditWarning] = useState(null);
+  const [previewShop, setPreviewShop] = useState(null);
   const [togglingShop, setTogglingShop] = useState(null);
 
   const term = query.trim().toLowerCase();
@@ -51,8 +54,20 @@ const AdminShops = () => {
 
   const activeCount = shops.filter((s) => s.is_active).length;
 
-  const handleCreate = async (shop) => {
-    if (await createShop(shop)) setIsAdding(false);
+  /**
+   * The logo is a second request, made after the shop exists.
+   *
+   * A new shop has no id to upload against until it is created, so the modal
+   * holds the picked file and it is sent here. A failed upload does not undo the
+   * shop — the admin has a shop with no logo, which they can fix by editing it,
+   * and that is a better outcome than losing the shop.
+   */
+  const handleCreate = async (shop, pendingLogo) => {
+    const created = await createShop(shop);
+    if (!created) return;
+
+    if (pendingLogo) await saveShopLogo(created.id, pendingLogo);
+    setIsAdding(false);
   };
 
   /**
@@ -61,10 +76,18 @@ const AdminShops = () => {
    * The write has already succeeded either way — the warning is information
    * about a consequence, not a refusal. Closing the modal and dropping it on
    * the floor is what Requirement 2.7 exists to prevent.
+   *
+   * `pendingLogo` is undefined when the logo was not touched, null when it was
+   * cleared, and a File when a new one was picked — so an edit to the address
+   * alone sends no logo request at all.
    */
-  const handleEditSave = async (id, updates) => {
+  const handleEditSave = async (id, updates, pendingLogo) => {
     const updated = await updateShop(id, updates);
     if (!updated) return;
+
+    if (pendingLogo !== undefined) {
+      if (!(await saveShopLogo(id, pendingLogo))) return;
+    }
 
     if (updated.warning) {
       setEditingShop(updated);
@@ -150,6 +173,7 @@ const AdminShops = () => {
           <ShopsList
             shops={visibleShops}
             onEdit={openEdit}
+            onPreview={setPreviewShop}
             onToggleActive={setTogglingShop}
             emptyMessage={
               shops.length === 0
@@ -176,6 +200,11 @@ const AdminShops = () => {
         warning={editWarning}
         isSubmitting={isMutating}
         errorMessage={mutationError}
+      />
+
+      <ReceiptPreviewModal
+        shop={previewShop}
+        onClose={() => setPreviewShop(null)}
       />
 
       <ConfirmDialog

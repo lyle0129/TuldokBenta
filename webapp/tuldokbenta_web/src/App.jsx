@@ -9,6 +9,7 @@ import Navbar from "./components/shared/Navbar";
 import Inventory from "./pages/Inventory";
 import Services from "./pages/Services";
 import PaymentMethods from "./pages/PaymentMethods";
+import ShopSettings from "./pages/ShopSettings";
 import OpenSales from "./pages/OpenSales";
 import ClosedSales from "./pages/ClosedSales";
 import Reporting from "./pages/Reporting";
@@ -76,6 +77,7 @@ function App() {
             {guarded("/inventory", <Inventory />)}
             {guarded("/services", <Services />)}
             {guarded("/payment-methods", <PaymentMethods />)}
+            {guarded("/shop-settings", <ShopSettings />)}
             {guarded("/reporting", <Reporting />)}
 
             {/* The console. Guarded by the same rolesForPath lookup as every

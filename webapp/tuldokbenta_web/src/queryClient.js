@@ -42,6 +42,9 @@ export const queryKeys = {
   inventory: (shopId) => ["inventory", shopId],
   services: (shopId) => ["services", shopId],
   paymentMethods: (shopId) => ["paymentMethods", shopId],
+  // The receipt header this shop prints. Scoped like everything else — the whole
+  // point of it living in the database is that two shops print different ones.
+  shopProfile: (shopId) => ["shopProfile", shopId],
   openSales: (shopId) => ["openSales", shopId],
   // Scoped like the rest: invoice series are allocated per shop, so two shops
   // legitimately preview the same number at the same time.
@@ -84,6 +87,8 @@ export const staleTimes = {
   services: 5 * 60 * 1000,
   // Edited about as often as services — a handful of times ever.
   paymentMethods: 5 * 60 * 1000,
+  // And the receipt header rather less often than that.
+  shopProfile: 5 * 60 * 1000,
   inventory: 60 * 1000,
   sales: 30 * 1000,
 };
@@ -120,6 +125,10 @@ export const PERSISTED_RESOURCES = [
   // Without this the pay dialog would have an empty method dropdown until the
   // first fetch lands, which is the one moment a cashier cannot wait.
   "paymentMethods",
+  // Same class of problem: a receipt printed before the first fetch lands would
+  // come out with no shop name, address or logo on it, and the customer is
+  // already holding it by the time anyone notices.
+  "shopProfile",
 ];
 
 /**
