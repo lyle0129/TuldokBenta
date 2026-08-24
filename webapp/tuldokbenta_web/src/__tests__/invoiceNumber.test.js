@@ -23,6 +23,11 @@ describe("formatInvoiceNumber", () => {
   it("keeps growing past the pad width rather than wrapping", () => {
     expect(formatInvoiceNumber(10000)).toBe("INV-10000");
   });
+
+  it("uses the shop's own prefix when given one", () => {
+    expect(formatInvoiceNumber(1, "SPN-")).toBe("SPN-0001");
+    expect(formatInvoiceNumber(87, "")).toBe("0087");
+  });
 });
 
 describe("parseInvoiceSeq", () => {
@@ -49,6 +54,20 @@ describe("parseInvoiceSeq", () => {
       expect(parseInvoiceSeq(junk)).toBeNull();
     }
   });
+
+  it("round-trips under a shop's own prefix, and refuses another shop's", () => {
+    expect(parseInvoiceSeq("SPN-0042", "SPN-")).toBe(42);
+    // The reason two shops can both hold 0042 without either page confusing them.
+    expect(parseInvoiceSeq("INV-0042", "SPN-")).toBeNull();
+  });
+
+  it("does not treat the prefix as a pattern", () => {
+    // "INV." as a RegExp would match "INVx0042" and count a foreign number as
+    // this shop's. The prefix is a shop-editable column, so it has to be matched
+    // literally — the same reason the backend uses startsWith.
+    expect(parseInvoiceSeq("INVx0042", "INV.")).toBeNull();
+    expect(parseInvoiceSeq("INV.0042", "INV.")).toBe(42);
+  });
 });
 
 describe("maxInvoiceSeq", () => {
@@ -63,5 +82,9 @@ describe("maxInvoiceSeq", () => {
   it("skips unparseable numbers instead of poisoning the result", () => {
     expect(maxInvoiceSeq(["INV-0003", "scratch pad", undefined, "INV-0009"])).toBe(9);
     expect(maxInvoiceSeq(["nothing parseable"])).toBe(0);
+  });
+
+  it("counts only numbers in the prefix it was given", () => {
+    expect(maxInvoiceSeq(["SPN-0003", "INV-9999", "SPN-0009"], "SPN-")).toBe(9);
   });
 });

@@ -5,6 +5,12 @@ import { ReactQueryDevtools } from '@tanstack/react-query-devtools'
 import './index.css'
 import App from './App.jsx'
 import { queryClient, persistOptions } from './queryClient'
+import { ensureLegacyOfflineMigration } from './utils/offlineMigration'
+
+// Before the tree mounts, so nothing can read a namespaced offline key while a
+// pre-upgrade queue is still sitting under the old un-namespaced one. It is a
+// no-op on a boot with no session — see ensureLegacyOfflineMigration.
+ensureLegacyOfflineMigration()
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>

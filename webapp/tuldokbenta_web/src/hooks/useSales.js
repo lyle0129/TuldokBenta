@@ -183,11 +183,16 @@ export const useSaleMutations = () => {
 
   // nextInvoice rides along: opening a sale consumes a number, and deleting the
   // newest one frees it again, so the cart's preview has to move with both.
-  const openSalesAndStock = () =>
+  //
+  // `target` defaults to the active shop and is only ever something else for an
+  // offline sync, which posts into the shop the sale was queued at. Invalidating
+  // the active shop's keys there would clear the lists of a shop nothing
+  // happened in and leave the changed one stale.
+  const openSalesAndStock = (target = shopId) =>
     invalidate([
-      queryKeys.openSales(shopId),
-      queryKeys.inventory(shopId),
-      queryKeys.nextInvoice(shopId),
+      queryKeys.openSales(target),
+      queryKeys.inventory(target),
+      queryKeys.nextInvoice(target),
     ]);
 
   /** Moves a row between open and closed; stock was settled when it opened. */
@@ -204,9 +209,14 @@ export const useSaleMutations = () => {
     }
   };
 
+  // `shopId` here is the offline queue's, absent everywhere else. Note the
+  // onSuccess wrappers below: TanStack calls it with (data, variables), so
+  // passing `openSalesAndStock` bare would hand the server's response body in as
+  // the shop to invalidate.
   const createMutation = useMutation({
-    mutationFn: (sale) => apiRequest("/open-sales", { method: "POST", body: sale }),
-    onSuccess: openSalesAndStock,
+    mutationFn: ({ sale, shopId: target }) =>
+      apiRequest("/open-sales", { method: "POST", body: sale, shopId: target }),
+    onSuccess: (_data, variables) => openSalesAndStock(variables?.shopId ?? shopId),
   });
 
   const updateMutation = useMutation({
@@ -214,12 +224,12 @@ export const useSaleMutations = () => {
     // callable with a row straight out of the list.
     mutationFn: ({ id, sale }) =>
       apiRequest(`/open-sales/${id}`, { method: "PUT", body: sale }),
-    onSuccess: openSalesAndStock,
+    onSuccess: () => openSalesAndStock(),
   });
 
   const deleteOpenMutation = useMutation({
     mutationFn: (id) => apiRequest(`/open-sales/${id}`, { method: "DELETE" }),
-    onSuccess: openSalesAndStock,
+    onSuccess: () => openSalesAndStock(),
   });
 
   const payMutation = useMutation({
@@ -255,7 +265,13 @@ export const useSaleMutations = () => {
   });
 
   return {
-    createOpenSale: (sale) => run(createMutation, sale, "Failed to create open sale"),
+    /**
+     * @param sale the whitelisted body
+     * @param shopId only the offline sync passes this — the shop the sale was
+     *   *queued at*, which is not necessarily the one selected now
+     */
+    createOpenSale: (sale, shopId) =>
+      run(createMutation, { sale, shopId }, "Failed to create open sale"),
     updateOpenSale: (id, sale) =>
       run(updateMutation, { id, sale }, "Failed to update open sale"),
     deleteOpenSale: (id) =>

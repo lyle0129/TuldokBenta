@@ -1,17 +1,37 @@
 // utils/storage.js
 // Single place that knows the localStorage key names and survives bad data.
 
-/**
- * Queued sales made on the offline page, awaiting sync.
- *
- * One exported constant on purpose: this key was previously spelled
- * "offline_sales" in four places and "offlineSales" in a fifth, so editing an
- * offline invoice number wrote to an orphan key and was lost on reload.
- */
-export const OFFLINE_SALES_KEY = "offline_sales";
+// ---------------------------------------------------------------------------
+// The offline page's three keys.
+//
+// Each is now `<name>:<shopId>`. Two shops on one device must not share a queue,
+// a catalog or an invoice series: a sale queued at one branch syncing into the
+// other is money in the wrong books.
+//
+// Building these inline was never an option. This file exists because the queue
+// key was once spelled "offline_sales" in four places and "offlineSales" in a
+// fifth, so editing an offline invoice number wrote to an orphan key and was
+// lost on reload. A *computed* key spread across call sites would be that same
+// bug with more surface area.
+// ---------------------------------------------------------------------------
 
-/** Cached inventory + services snapshot the offline page sells from. */
-export const OFFLINE_CATALOG_KEY = "offline_catalog";
+/**
+ * The un-namespaced names the previous build wrote.
+ *
+ * Read by utils/offlineMigration.js and by nothing else, ever. They are here
+ * rather than inlined there so that the one file naming these strings is still
+ * the one file that names all of them.
+ */
+export const LEGACY_OFFLINE_SALES_KEY = "offline_sales";
+export const LEGACY_OFFLINE_CATALOG_KEY = "offline_catalog";
+export const LEGACY_OFFLINE_NEXT_INVOICE_KEY = "offline_next_invoice";
+
+/** Queued sales made on the offline page for `shopId`, awaiting sync. */
+export const offlineSalesKey = (shopId) => `${LEGACY_OFFLINE_SALES_KEY}:${shopId}`;
+
+/** Cached inventory, services and receipt profile the offline page sells from. */
+export const offlineCatalogKey = (shopId) =>
+  `${LEGACY_OFFLINE_CATALOG_KEY}:${shopId}`;
 
 /**
  * Where the offline page should resume numbering, as a bare sequence number.
@@ -21,7 +41,16 @@ export const OFFLINE_CATALOG_KEY = "offline_catalog";
  * drained queue plus a reload restarted it at INV-0001 — guaranteeing a clash with
  * the server on the next sync.
  */
-export const OFFLINE_NEXT_INVOICE_KEY = "offline_next_invoice";
+export const offlineNextInvoiceKey = (shopId) =>
+  `${LEGACY_OFFLINE_NEXT_INVOICE_KEY}:${shopId}`;
+
+/**
+ * Set once the legacy keys above have been moved into a shop's namespace.
+ *
+ * Its absence is what lets the migration run; its presence is what stops it
+ * running on every load forever.
+ */
+export const OFFLINE_MIGRATION_KEY = "tb_offline_migrated";
 
 /**
  * The signed-in session: access token, refresh token, user profile and shop list.

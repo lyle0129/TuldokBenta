@@ -15,17 +15,25 @@ import CartModal from "../components/open-sales/CartModal";
 import ConfirmDialog from "../components/shared/ConfirmDialog";
 import { buildSaleItems } from "../utils/buildSaleItems";
 import { freebieGapsFromCart, describeFreebieGaps } from "../utils/freebies";
-import { parseInvoiceSeq } from "../utils/invoiceNumber";
+import { parseInvoiceSeq, INVOICE_PREFIX } from "../utils/invoiceNumber";
 import {
+  readJSON,
   writeJSON,
-  OFFLINE_CATALOG_KEY,
-  OFFLINE_NEXT_INVOICE_KEY,
+  offlineCatalogKey,
+  offlineNextInvoiceKey,
 } from "../utils/storage";
+import { useActiveShopId } from "../hooks/useActiveShop";
+import { useShopProfile } from "../hooks/useShopProfile";
 
 const OpenSales = () => {
   const { inventory } = useInventory();
   const { services } = useServices();
   const { openSales } = useOpenSales();
+  // Both only so this page can keep the offline page's snapshot fresh. The shop
+  // profile is already cached and shared — ListSales below reads the same query
+  // to print receipts — so this costs no extra request.
+  const shopId = useActiveShopId();
+  const { shopProfile } = useShopProfile();
   // What the next sale will be numbered, so the cashier can see where the numbering
   // stands from inside the cart. One small query — this page used to derive the same
   // string from max(open ∪ closed) + 1, which meant downloading the entire
@@ -55,14 +63,28 @@ const OpenSales = () => {
 
   // Keep the offline page's catalog fresh as a side effect of normal online
   // use, so it rarely has to fall back to the built-in seed list.
+  //
+  // `shop` is written alongside because this overwrites the whole snapshot: a
+  // write without it stripped the receipt header and the invoice prefix off a
+  // device every time someone opened this page, so the offline receipt printed
+  // nameless and numbered from the default series.
+  //
+  // Falling back to the snapshot's own `shop` rather than writing null covers
+  // the window before the profile query lands, and the case where it never does
+  // because the connection is already going. Neither is a reason to take a
+  // working receipt header away from a till that is about to lose the network.
   useEffect(() => {
+    if (!shopId) return;
     if (inventory.length === 0 && services.length === 0) return;
-    writeJSON(OFFLINE_CATALOG_KEY, {
+
+    const key = offlineCatalogKey(shopId);
+    writeJSON(key, {
       inventory,
       services,
+      shop: shopProfile ?? readJSON(key)?.shop ?? null,
       syncedAt: new Date().toISOString(),
     });
-  }, [inventory, services]);
+  }, [inventory, services, shopProfile, shopId]);
 
   const submitSale = async () => {
     setIsSubmitting(true);
@@ -78,12 +100,16 @@ const OpenSales = () => {
 
     setIsSubmitting(false);
     if (ok) {
-      // Hand the offline page a starting point. It can only count from its own
-      // queue otherwise, so a drained queue plus a reload restarted it at INV-0001
-      // and every sync then collided. This is the freshest signal available and
-      // costs no extra request.
-      const seq = parseInvoiceSeq(data?.invoice_number);
-      if (seq !== null) writeJSON(OFFLINE_NEXT_INVOICE_KEY, seq + 1);
+      // Hand the offline page a starting point, under this shop's key. It can
+      // only count from its own queue otherwise, so a drained queue plus a reload
+      // restarted it at INV-0001 and every sync then collided. This is the
+      // freshest signal available and costs no extra request.
+      //
+      // Parsed against the shop's own prefix: a shop numbering SPN-0087 would
+      // otherwise not parse at all, and the offline page would restart at 1.
+      const prefix = shopProfile?.invoice_prefix ?? INVOICE_PREFIX;
+      const seq = parseInvoiceSeq(data?.invoice_number, prefix);
+      if (seq !== null) writeJSON(offlineNextInvoiceKey(shopId), seq + 1);
 
       // Stock changed server-side, but the mutation already invalidated the
       // inventory cache — no manual refetch needed.

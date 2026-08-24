@@ -11,7 +11,7 @@ those tests pass.
 
 ## Tasks
 
-- [ ] 1. Add namespaced key builders to `src/utils/storage.js`
+- [x] 1. Add namespaced key builders to `src/utils/storage.js`
   - `offlineSalesKey(shopId)`, `offlineCatalogKey(shopId)`, `offlineNextInvoiceKey(shopId)`
   - Keep the three legacy names as exported constants, commented as read-only and used solely
     by the migration
@@ -20,7 +20,7 @@ those tests pass.
     vanished on reload. A computed key built inline would be that bug with more surface area
   - _Requirements: 2.1, 2.2_
 
-- [ ] 2. Create `src/utils/offlineMigration.js` and call it from `main.jsx`
+- [x] 2. Create `src/utils/offlineMigration.js` and call it from `main.jsx`
   - Move each legacy key's contents to the Shop 1 namespace, in this exact order: read →
     validate by parsing → write the target → **then** remove the legacy key
   - Skip any target that already holds data; never overwrite
@@ -32,14 +32,14 @@ those tests pass.
     key first
   - _Requirements: 1.1–1.7_
 
-- [ ] 3. Test the migration before writing anything else
+- [x] 3. Test the migration before writing anything else
   - `__tests__/offlineMigration.test.js` with P1 (never loses data) and P2 (idempotent), over
     generated queue contents and a stubbed `localStorage`
   - Be exhaustive on P1. It is the only property in this program whose failure costs the shop
     money rather than convenience
   - _Requirements: 1.1, 1.3, 1.4, 1.5, 1.6_
 
-- [ ] 4. Make `useOfflineCatalog.js` shop-aware
+- [x] 4. Make `useOfflineCatalog.js` shop-aware
   - Read and write `offlineCatalogKey(shopId)`
   - Do nothing at all when no shop is active
   - Preserve the existing behaviour that a failed refresh keeps the current snapshot rather
@@ -47,7 +47,7 @@ those tests pass.
     banner
   - _Requirements: 2.1, 2.5, 6.3, 6.4_
 
-- [ ] 5. Stamp queued sales with their shop
+- [x] 5. Stamp queued sales with their shop
   - Every queue entry records `shop_id` at the moment it is queued
   - Add an optional `shopId` option to `apiRequest` that overrides the active shop's
     `X-Shop-Id` header, used **only** by the offline sync — reading the active shop at sync
@@ -57,7 +57,7 @@ those tests pass.
     put money in the wrong branch's books
   - _Requirements: 3.1, 3.2, 3.3, 3.4_
 
-- [ ] 6. Scope the offline invoice sequence
+- [x] 6. Scope the offline invoice sequence
   - Track it under `offlineNextInvoiceKey(shopId)`
   - Preserve the existing resume rule — the greater of the cached sequence and the highest in
     the queue plus one — and the comment explaining why the queue alone is not enough
@@ -67,7 +67,7 @@ those tests pass.
     per shop, which makes reassignment less likely rather than differently shaped
   - _Requirements: 4.1, 4.2, 4.3, 4.4_
 
-- [ ] 7. Handle shop switching on the offline page
+- [x] 7. Handle shop switching on the offline page
   - Re-read the queue when the active shop changes, or switching leaves the previous shop's
     queue rendered against the new shop's catalog
   - **Reset `salesRef` in the same effect.** That ref exists because an in-flight sync outlives
@@ -77,29 +77,35 @@ those tests pass.
     carry their shop
   - _Requirements: 2.3, 2.4, 6.1_
 
-- [ ] 8. Protect the queue from being cleared
+- [x] 8. Protect the queue from being cleared
   - Confirm `clearQueryCache()` removes only `tb_query_cache` and add a comment there saying
     the offline queue must never be added to it
   - Confirm a shop switch and a sign-out both leave the queue intact
   - The queue is not a cache; it is the only record of a sale that has not reached the server
   - _Requirements: 5.4, 5.5_
 
-- [ ] 9. Verify the offline session behaviour
+- [x] 9. Verify the offline session behaviour
   - The offline page must be reachable with an expired access token
   - A sync failing because the server is unreachable leaves the session intact — this relies on
     ticket 07's three-outcome refresh; if that was implemented as a boolean, fix it there first
   - A sync refused by the server signs the user out and leaves the queue untouched
   - _Requirements: 5.1, 5.2, 5.3_
 
-- [ ] 10. Add the remaining tests
+- [x] 10. Add the remaining tests
   - P3 (keys are shop-distinct and never a legacy name), P4 (a queued sale syncs to its own
     shop), P5 (invoice resume is monotonic)
   - SP1: `rg -n "offline_sales|offline_catalog|offline_next_invoice" src` returns nothing
     outside `storage.js` and `offlineMigration.js`
   - _Requirements: 2.2, 3.1, 3.2, 4.3_
 
-- [ ] 11. Verification checkpoint
-  - `npm run build`, `npm test` and `npm run lint` pass
+- [x] 11. Verification checkpoint
+  - `npm run build`, `npm test` (506) and `npm run lint` all pass. Lint needed two
+    pre-existing errors in `__tests__/useCart.test.js` cleared first: an unused
+    `expect` import, and a `renderHook` call that rules-of-hooks rejected because the
+    helper wrapping it was named `useCartWithItems` — renamed to
+    `renderCartWithItems`, since it renders a hook rather than being one
+  - **The manual rehearsal below is still outstanding** — it needs a browser, a real
+    pre-upgrade profile and a second shop, so it is the user's to walk
   - **Rehearse the migration against a real pre-upgrade browser profile**: build the previous
     version, queue two sales offline, then load the new build over the top and confirm both
     survive, the legacy key is gone, and a second reload changes nothing. Use a real profile,

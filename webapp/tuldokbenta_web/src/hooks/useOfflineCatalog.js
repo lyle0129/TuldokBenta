@@ -1,7 +1,8 @@
 // hooks/useOfflineCatalog.js
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { apiRequest } from "../api";
-import { readJSON, writeJSON, OFFLINE_CATALOG_KEY } from "../utils/storage";
+import { readJSON, writeJSON, offlineCatalogKey } from "../utils/storage";
+import { ensureLegacyOfflineMigration } from "../utils/offlineMigration";
 import { SEED_INVENTORY, SEED_SERVICES } from "../data/offlineCatalogSeed";
 import { useActiveShopId } from "./useActiveShop";
 
@@ -17,16 +18,13 @@ import { useActiveShopId } from "./useActiveShop";
  *
  * The shop's receipt profile rides along in the same snapshot, which is what
  * lets an offline receipt print with a header. It lives here rather than under a
- * key of its own for the reason in the note below: one key to migrate is safer
- * than two.
+ * key of its own because one key to migrate is safer than two.
  *
- * NOTE: OFFLINE_CATALOG_KEY is not yet namespaced per shop, so a user who
- * switches shops still sees the previous shop's saved catalog here until the
- * next refresh. Ticket 11 owns that key's migration — it has to move
- * `offline_sales` at the same time, and one migration over both keys is safer
- * than two. What this hook does now is refuse to *overwrite* the snapshot
- * without a shop selected, so a refresh can never write one shop's catalog
- * under another's session.
+ * The snapshot is stored per shop. Two branches stock different things at
+ * different prices, and a till showing the other branch's catalog would price
+ * the sale wrong and then fail to sync it — the offline sync matches inventory
+ * rows by `item_name`, so the names have to be the ones that shop actually has.
+ * With no shop selected this reads and writes nothing at all.
  *
  * @returns {{
  *   inventory: Array, services: Array, shop: Object|null,
@@ -34,31 +32,62 @@ import { useActiveShopId } from "./useActiveShop";
  *   refresh: () => Promise<boolean>, isRefreshing: boolean, error: string|null,
  * }}
  */
-export const useOfflineCatalog = () => {
-  const [catalog, setCatalog] = useState(() => {
-    const cached = readJSON(OFFLINE_CATALOG_KEY);
-    if (cached?.inventory?.length || cached?.services?.length) {
-      return {
-        inventory: cached.inventory || [],
-        services: cached.services || [],
-        // Absent on a snapshot written before ticket 09. A receipt then prints
-        // without a header rather than not printing at all, which is the same
-        // thing that happens on a device that has never been online.
-        shop: cached.shop || null,
-        syncedAt: cached.syncedAt || null,
-      };
-    }
+
+/** The built-in list, for a shop with no snapshot and for no shop at all. */
+const seedCatalog = () => ({
+  inventory: SEED_INVENTORY,
+  services: SEED_SERVICES,
+  shop: null,
+  syncedAt: null,
+});
+
+/**
+ * The saved snapshot for `shopId`, or the seed.
+ *
+ * Migrates first: signing in does not reload the page, so this can be the first
+ * thing to read a namespaced key on a device whose queue is still sitting under
+ * the pre-upgrade one.
+ */
+const loadCatalog = (shopId) => {
+  if (!shopId) return seedCatalog();
+  ensureLegacyOfflineMigration();
+
+  const cached = readJSON(offlineCatalogKey(shopId));
+  if (cached?.inventory?.length || cached?.services?.length) {
     return {
-      inventory: SEED_INVENTORY,
-      services: SEED_SERVICES,
-      shop: null,
-      syncedAt: null,
+      inventory: cached.inventory || [],
+      services: cached.services || [],
+      // Absent on a snapshot written before ticket 09. A receipt then prints
+      // without a header rather than not printing at all, which is the same
+      // thing that happens on a device that has never been online.
+      shop: cached.shop || null,
+      syncedAt: cached.syncedAt || null,
     };
-  });
+  }
+  return seedCatalog();
+};
+
+export const useOfflineCatalog = () => {
+  // Read before the initializer below runs, so the first paint is already this
+  // shop's catalog rather than the previous one for a frame.
+  const shopId = useActiveShopId();
+
+  const [catalog, setCatalog] = useState(() => loadCatalog(shopId));
 
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState(null);
-  const shopId = useActiveShopId();
+
+  // Skips the reload on mount, which the initializer above has already done.
+  const loadedFor = useRef(shopId);
+  useEffect(() => {
+    if (loadedFor.current === shopId) return;
+    loadedFor.current = shopId;
+    // A switch has to swap the catalog, not merely stop refreshing it: the
+    // previous shop's items would otherwise stay on the grid, priced wrong and
+    // named after rows this shop does not have.
+    setCatalog(loadCatalog(shopId));
+    setError(null);
+  }, [shopId]);
 
   const refresh = useCallback(async () => {
     // Every scoped endpoint answers 400 "No shop selected" to an authenticated
@@ -92,7 +121,7 @@ export const useOfflineCatalog = () => {
         shop,
         syncedAt: new Date().toISOString(),
       };
-      writeJSON(OFFLINE_CATALOG_KEY, next);
+      writeJSON(offlineCatalogKey(shopId), next);
       setCatalog(next);
       return true;
     } catch (err) {

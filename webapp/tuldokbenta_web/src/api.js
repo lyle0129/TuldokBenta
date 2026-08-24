@@ -145,7 +145,7 @@ const performRefresh = async () => {
  * hooks this replaced caught everything and left the UI showing an empty list.
  *
  * @param {string} path path below API_BASE_URL, e.g. "/inventory"
- * @param {{ method?: string, body?: unknown, rawBody?: Blob, signal?: AbortSignal }} [options]
+ * @param {{ method?: string, body?: unknown, rawBody?: Blob, shopId?: number, signal?: AbortSignal }} [options]
  * @returns {Promise<any>} the parsed JSON body, or null for 204
  */
 export const apiRequest = async (
@@ -162,10 +162,18 @@ export const apiRequest = async (
   //
   // A Blob is re-readable, which is what makes it safe to replay on the retry
   // below. A stream would not be, and must not be passed here.
-  { method = "GET", body, rawBody, signal, _retry = false } = {}
+  //
+  // `shopId` overrides the active shop for this one request. It exists for the
+  // offline sync and nothing else: a queued sale carries the shop it was taken
+  // at, and a cashier can queue at one branch, switch, and sync later — so
+  // reading the active shop at sync time would put the sale in the wrong books.
+  // Every other caller must leave it alone and let the active shop decide.
+  { method = "GET", body, rawBody, shopId: shopIdOverride, signal, _retry = false } = {}
 ) => {
   const session = isCredentialPath(path) ? null : getSession();
-  const shopId = isShopExemptPath(path) ? null : getActiveShopId();
+  const shopId = isShopExemptPath(path)
+    ? null
+    : (shopIdOverride ?? getActiveShopId());
 
   // The image's own type, which is also what the server matches on to decide
   // whether to parse the body at all.
@@ -203,7 +211,17 @@ export const apiRequest = async (
     const outcome = await refreshInFlight;
 
     if (outcome === REFRESHED) {
-      return apiRequest(path, { method, body, rawBody, signal, _retry: true });
+      // The override rides along. Dropping it here would make a retried offline
+      // sync silently land in the active shop instead — the one bug the option
+      // exists to prevent, arriving through the one path nobody looks at.
+      return apiRequest(path, {
+        method,
+        body,
+        rawBody,
+        shopId: shopIdOverride,
+        signal,
+        _retry: true,
+      });
     }
 
     // Unreachable server: the session may well still be good. Fail this one
@@ -233,7 +251,18 @@ export const apiRequest = async (
     // clearActiveShop rather than the picker's setShop: importing hooks from
     // here would close the api -> session import edge into a cycle, which is
     // exactly what utils/session.js is factored to avoid.
-    if (res.status === 403 && shopId && isUnassignedShopMessage(message)) {
+    //
+    // Only when the shop came from the store. An overridden shop is some *other*
+    // shop — an offline sale queued at a branch this user has since lost access
+    // to — and clearing the selection would eject the cashier out of the shop
+    // they are standing in over a row they cannot sync anyway. That 403 is the
+    // offline page's to render against the row.
+    if (
+      res.status === 403 &&
+      shopId &&
+      shopIdOverride === undefined &&
+      isUnassignedShopMessage(message)
+    ) {
       clearActiveShop();
       clearQueryCache();
       window.location.assign("/select-shop");

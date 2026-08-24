@@ -353,6 +353,60 @@ describe('apiRequest — the shop header', () => {
 
     expect(shopHeaderOf(fetchMock.mock.calls.at(-1))).toBe('1')
   })
+
+  /**
+   * The offline sync's override, and nothing else's.
+   *
+   * A queued sale carries the shop it was taken at. A cashier can queue at one
+   * branch, switch, and sync from the other — so the sync has to name a shop
+   * rather than inherit whichever is selected when the connection returns.
+   */
+  it('sends an explicit shop in place of the active one', async () => {
+    setSession(SESSION)
+    setActiveShopId(2)
+    const fetchMock = mockFetchByPath(() => Promise.resolve(jsonResponse(201, {})))
+
+    await apiRequest('/open-sales', { method: 'POST', body: {}, shopId: 1 })
+
+    expect(shopHeaderOf(fetchMock.mock.calls[0])).toBe('1')
+  })
+
+  it('sends the override even when no shop is selected at all', async () => {
+    setSession(SESSION)
+    const fetchMock = mockFetchByPath(() => Promise.resolve(jsonResponse(201, {})))
+
+    await apiRequest('/open-sales', { method: 'POST', body: {}, shopId: 3 })
+
+    expect(shopHeaderOf(fetchMock.mock.calls[0])).toBe('3')
+  })
+
+  it('keeps the override across a refreshed retry', async () => {
+    // Dropping it here would land a retried offline sync in the active shop,
+    // through the one path nobody looks at.
+    setSession(SESSION)
+    setActiveShopId(2)
+
+    const fetchMock = mockFetchByPath((url, options) => {
+      if (url.includes('/auth/refresh')) {
+        return Promise.resolve(
+          jsonResponse(200, {
+            accessToken: 'access-2',
+            user: SESSION.user,
+            shops: SESSION.shops,
+          })
+        )
+      }
+      return Promise.resolve(
+        options.headers.Authorization === 'Bearer access-1'
+          ? jsonResponse(401, {})
+          : jsonResponse(201, {})
+      )
+    })
+
+    await apiRequest('/open-sales', { method: 'POST', body: {}, shopId: 1 })
+
+    expect(shopHeaderOf(fetchMock.mock.calls.at(-1))).toBe('1')
+  })
 })
 
 /**
@@ -410,6 +464,32 @@ describe('apiRequest — a 403 on the shop', () => {
       'You do not have access to this action'
     )
     expect(getActiveShopId()).toBe(9)
+    expect(window.location.assign).not.toHaveBeenCalled()
+  })
+
+  /**
+   * A third 403, and the recovery above is wrong for it.
+   *
+   * An offline sync names a shop of its own — the branch a queued sale was taken
+   * at, which the user may since have lost access to. Clearing the *selection*
+   * over that would eject the cashier out of the shop they are standing in, over
+   * a row they cannot sync from anywhere. The offline page renders it against
+   * the row instead.
+   */
+  it('leaves the selection alone when the refused shop was an override', async () => {
+    setSession(SESSION)
+    setActiveShopId(2)
+    mockFetchByPath(() =>
+      Promise.resolve(
+        jsonResponse(403, { message: 'You are not assigned to that shop' })
+      )
+    )
+
+    await expect(
+      apiRequest('/open-sales', { method: 'POST', body: {}, shopId: 9 })
+    ).rejects.toThrow('You are not assigned to that shop')
+
+    expect(getActiveShopId()).toBe(2)
     expect(window.location.assign).not.toHaveBeenCalled()
   })
 })

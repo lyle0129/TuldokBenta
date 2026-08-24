@@ -162,6 +162,14 @@ export const persistOptions = {
  * Logout used to rely on window.location.reload() to wipe state; with a
  * persisted cache that no longer holds, and sales data would outlive the
  * session in localStorage.
+ *
+ * QUERY_CACHE_KEY and nothing else, and this must stay that way. The offline
+ * page's `offline_sales:{shopId}` queue lives in the same localStorage and is
+ * NOT a cache: it is the only record anywhere of a sale that has not reached the
+ * server. Every caller of this function — a sign-out, a shop switch, a session
+ * refused by the server — is a moment where clearing it would silently destroy
+ * money the shop has already taken. Widening this to a prefix sweep or a
+ * localStorage.clear() would do exactly that.
  */
 export const clearQueryCache = () => {
   queryClient.clear();
