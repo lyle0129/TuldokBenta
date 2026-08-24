@@ -1,4 +1,5 @@
 // components/open-sales/FreebieEditor.jsx
+import QuantityStepper from "../shared/QuantityStepper";
 
 /**
  * Picks the concrete inventory items for a service's freebie slots.
@@ -53,7 +54,13 @@ const FreebieEditor = ({
             </div>
 
             {choices.map((choice, cIdx) => (
-              <div key={cIdx} className="flex items-center gap-2 mb-2">
+              // The stepper is three controls wide, so the picker gets a line
+              // of its own on a phone rather than being squeezed to a sliver
+              // beside it. Still one row from `sm:` up.
+              <div
+                key={cIdx}
+                className="flex flex-col sm:flex-row sm:items-center gap-2 mb-2"
+              >
                 <select
                   value={choice.item || ""}
                   aria-label={`Free ${f.classification} item`}
@@ -72,24 +79,29 @@ const FreebieEditor = ({
                   ))}
                 </select>
 
-                <input
-                  type="number"
-                  min="1"
-                  max={slots}
-                  value={choice.qty}
-                  aria-label={`Free ${f.classification} quantity`}
-                  onChange={(e) => onChangeQty(f.classification, cIdx, e.target.value)}
-                  className="w-16 flex-shrink-0 min-h-11 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-100 px-2 text-center text-sm focus:ring-2 focus:ring-green-500 outline-none"
-                />
+                <div className="flex items-center gap-2">
+                  {/* Deliberately not worded "increase/decrease quantity":
+                      inside the cart these sit directly under the line's own
+                      stepper, which is. */}
+                  <QuantityStepper
+                    value={choice.qty}
+                    onChange={(next) => onChangeQty(f.classification, cIdx, next)}
+                    label={`Free ${f.classification} quantity`}
+                    decreaseLabel={`Claim one fewer free ${f.classification}`}
+                    increaseLabel={`Claim one more free ${f.classification}`}
+                    max={slots}
+                    focusRing="focus:ring-green-500"
+                  />
 
-                <button
-                  type="button"
-                  onClick={() => onRemoveChoice(f.classification, cIdx)}
-                  aria-label={`Remove free ${f.classification}`}
-                  className="flex-shrink-0 w-11 h-11 rounded-md text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950 transition-colors"
-                >
-                  ✕
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => onRemoveChoice(f.classification, cIdx)}
+                    aria-label={`Remove free ${f.classification}`}
+                    className="flex-shrink-0 w-11 h-11 ml-auto sm:ml-0 rounded-md text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950 transition-colors"
+                  >
+                    ✕
+                  </button>
+                </div>
               </div>
             ))}
 

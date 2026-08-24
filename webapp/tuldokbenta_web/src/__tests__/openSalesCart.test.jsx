@@ -267,13 +267,37 @@ describe("CartModal", () => {
 
   it("steps quantity up and down", () => {
     const onUpdateQuantity = vi.fn();
-    render(<CartModal {...makeProps({ onUpdateQuantity })} />);
+    const cart = [{ ...serviceLine, quantity: 2 }];
+    render(<CartModal {...makeProps({ cart, onUpdateQuantity })} />);
 
     fireEvent.click(screen.getByRole("button", { name: /increase quantity/i }));
     expect(onUpdateQuantity).toHaveBeenCalledWith(9, "service", 1);
 
     fireEvent.click(screen.getByRole("button", { name: /decrease quantity/i }));
     expect(onUpdateQuantity).toHaveBeenCalledWith(9, "service", -1);
+  });
+
+  // One is the floor — useCart clamps there anyway, so a live button that did
+  // nothing was the worse of the two answers.
+  it("won't step below one", () => {
+    render(<CartModal {...makeProps()} />);
+    expect(
+      screen.getByRole("button", { name: /decrease quantity/i })
+    ).toBeDisabled();
+  });
+
+  // Tapping + twenty times isn't a quantity control, so the number stays typeable
+  // and the delta is worked out from what was typed.
+  it("takes a quantity typed straight into the box", () => {
+    const onUpdateQuantity = vi.fn();
+    render(<CartModal {...makeProps({ onUpdateQuantity })} />);
+
+    // Exact, not a regex: the two buttons either side are labelled
+    // "…crease quantity of Full Service", so a substring match finds three.
+    fireEvent.change(screen.getByLabelText("Quantity of Full Service"), {
+      target: { value: "12" },
+    });
+    expect(onUpdateQuantity).toHaveBeenCalledWith(9, "service", 11);
   });
 
   it("removes a line", () => {

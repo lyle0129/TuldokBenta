@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import Modal from "../shared/Modal";
 import ConfirmDialog from "../shared/ConfirmDialog";
 import SearchInput from "../shared/SearchInput";
+import QuantityStepper from "../shared/QuantityStepper";
 import FreebieEditor from "../open-sales/FreebieEditor";
 import { labelClass, inputClass } from "../shared/fieldStyles";
 import {
@@ -376,13 +377,22 @@ const EditSaleModal = ({
                       </span>
                     )}
                   </p>
-                  <input
-                    type="number"
-                    min="1"
-                    aria-label={`Quantity for ${it.service_name || it.item_name}`}
+                  {/* "of", not "for" — the label on the number itself is
+                      "Quantity for X", and two controls whose names differ
+                      only by a preposition would be read out as the same
+                      thing. */}
+                  <QuantityStepper
+                    className="mt-1"
                     value={it.qty}
-                    onChange={(e) => updateQty(idx, e.target.value)}
-                    className="mt-1 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 rounded-md px-2 min-h-11 w-24 focus:ring-2 focus:ring-yellow-400 outline-none"
+                    onChange={(next) => updateQty(idx, next)}
+                    label={`Quantity for ${it.service_name || it.item_name}`}
+                    decreaseLabel={`Decrease quantity of ${
+                      it.service_name || it.item_name
+                    }`}
+                    increaseLabel={`Increase quantity of ${
+                      it.service_name || it.item_name
+                    }`}
+                    focusRing="focus:ring-yellow-400"
                   />
                 </div>
                 <div className="flex items-center gap-3">

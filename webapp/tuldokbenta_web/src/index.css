@@ -11,3 +11,16 @@
     display: none;
   }
 }
+
+/* For the number inside QuantityStepper. The browser's own spinners are a
+   second, much smaller pair of the −/+ buttons sitting right beside them, and
+   they eat the width the digits need on a phone. */
+@utility no-spinner {
+  appearance: textfield;
+  -moz-appearance: textfield;
+  &::-webkit-outer-spin-button,
+  &::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+}

@@ -1,6 +1,7 @@
 // components/open-sales/CartModal.jsx
 import Modal from "../shared/Modal";
 import FreebieEditor from "./FreebieEditor";
+import QuantityStepper from "../shared/QuantityStepper";
 import { labelClass, inputClass } from "../shared/fieldStyles";
 import { cartTotal } from "../../utils/cart";
 import { formatCurrency } from "../../utils/format";
@@ -32,9 +33,6 @@ const CartModal = ({
   title = "Cart",
 }) => {
   const total = cartTotal(cart);
-
-  const stepperClass =
-    "w-11 h-11 flex items-center justify-center rounded-md bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-100 hover:bg-gray-300 dark:hover:bg-gray-600 text-lg font-medium transition-colors";
 
   return (
     <Modal
@@ -126,30 +124,24 @@ const CartModal = ({
                 </div>
               </div>
 
-              <div className="flex items-center gap-2 mt-2">
-                <button
-                  type="button"
-                  onClick={() => onUpdateQuantity(item.id, item.type, -1)}
-                  aria-label={`Decrease quantity of ${item.name}`}
-                  className={stepperClass}
-                >
-                  –
-                </button>
-                <span
-                  aria-label={`Quantity of ${item.name}`}
-                  className="w-10 text-center font-medium text-gray-800 dark:text-gray-100"
-                >
-                  {item.quantity}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => onUpdateQuantity(item.id, item.type, +1)}
-                  aria-label={`Increase quantity of ${item.name}`}
-                  className={stepperClass}
-                >
-                  +
-                </button>
-              </div>
+              {/* `onUpdateQuantity` takes a delta, so the absolute value the
+                  stepper reports is turned back into one here. Clamped first:
+                  typing over the field yields "", and a bare Number("") would
+                  read as "take one off". */}
+              <QuantityStepper
+                className="mt-2"
+                value={item.quantity}
+                onChange={(next) => {
+                  const qty = Math.max(1, Math.floor(Number(next) || 1));
+                  if (qty !== item.quantity) {
+                    onUpdateQuantity(item.id, item.type, qty - item.quantity);
+                  }
+                }}
+                label={`Quantity of ${item.name}`}
+                decreaseLabel={`Decrease quantity of ${item.name}`}
+                increaseLabel={`Increase quantity of ${item.name}`}
+                focusRing="focus:ring-green-500"
+              />
 
               {item.type === "service" && (
                 <FreebieEditor

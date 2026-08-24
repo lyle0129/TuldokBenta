@@ -75,6 +75,38 @@ describe("EditSaleModal", () => {
     expect(screen.getByText(/no items left/i)).toBeInTheDocument();
   });
 
+  // The number is still typeable — the buttons are for nudging, not the only
+  // way in.
+  it("steps a line's quantity up and down", () => {
+    const onSave = vi.fn();
+    render(<EditSaleModal {...makeProps({ onSave })} />);
+
+    // mockSale's Detergent line starts at 2.
+    fireEvent.click(
+      screen.getByRole("button", { name: /increase quantity of detergent/i })
+    );
+    expect(screen.getByLabelText(/quantity for detergent/i)).toHaveValue(3);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /decrease quantity of detergent/i })
+    );
+    clickSave();
+
+    expect(savedSale(onSave).items[0].qty).toBe(2);
+  });
+
+  it("won't step a line below one", () => {
+    const sale = {
+      ...mockSale,
+      items: [{ type: "item", item_name: "Detergent", price: 50, qty: 1 }],
+    };
+    render(<EditSaleModal {...makeProps({ sale })} />);
+
+    expect(
+      screen.getByRole("button", { name: /decrease quantity of detergent/i })
+    ).toBeDisabled();
+  });
+
   it("clamps a cleared quantity to 1 rather than sending 0", () => {
     const onSave = vi.fn();
     render(<EditSaleModal {...makeProps({ onSave })} />);
