@@ -7,7 +7,9 @@
  * Property 6: Freebie quantity never exceeds service quantity           (Validates: Req 3.3)
  * Property 7: updateQuantity with change -1 at quantity 1 removes item  (Validates: Req 3.3)
  */
-import { describe, it, expect } from 'vitest'
+// No `expect`: every property below returns a boolean and fc.assert is what
+// fails the test. Importing it would suggest these assert directly.
+import { describe, it } from 'vitest'
 import { renderHook, act } from '@testing-library/react'
 import * as fc from 'fast-check'
 import { useCart } from '../hooks/useCart'
@@ -63,8 +65,14 @@ const serviceItemArb = fc.record({
 // ---------------------------------------------------------------------------
 // Helper: initialise a hook with a pre-built cart by calling addInventoryToCart
 // for each item once.
+//
+// Named `render...`, not `use...`: it is a test helper that renders a hook, not
+// a hook itself. The `use` prefix made rules-of-hooks read it as one and reject
+// the renderHook callback inside it as a hook called from a callback — the two
+// bare `renderHook(() => useCart())` calls further down are the same code and
+// pass, which is what gives the naming away.
 // ---------------------------------------------------------------------------
-function useCartWithItems(inventoryItems) {
+function renderCartWithItems(inventoryItems) {
   const hook = renderHook(() => useCart())
   act(() => {
     for (const item of inventoryItems) {
@@ -89,7 +97,7 @@ describe('Property 4 — adding a new inventory item grows cart length by one', 
           const usedIds = new Set(existingItems.map((i) => i.id))
           fc.pre(!usedIds.has(newItem.id))
 
-          const hook = useCartWithItems(existingItems)
+          const hook = renderCartWithItems(existingItems)
           const lengthBefore = hook.result.current.cart.length
 
           act(() => {
@@ -118,7 +126,7 @@ describe('Property 5 — adding an existing inventory item increments quantity o
         (existingItems) => {
           fc.pre(existingItems.length >= 1)
 
-          const hook = useCartWithItems(existingItems)
+          const hook = renderCartWithItems(existingItems)
           const lengthBefore = hook.result.current.cart.length
 
           // Pick the first item that is already in the cart
