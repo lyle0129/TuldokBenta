@@ -18,13 +18,30 @@ import { MAX_AUDIT_LIMIT } from "../utils/auditFilters";
  * It reports its `next_cursor` and the range's action list upward. The parent
  * cannot read them any other way — they arrive with the response, and the last
  * page loaded is the only one that knows whether there is another.
+ *
+ * Every state this page can be in is rendered HERE rather than by the parent,
+ * and that is load-bearing. The parent decided the empty case once, from the
+ * count reported upward — but a page reports zero while it is still loading, so
+ * the parent switched to its empty message and unmounted the very component
+ * that was mid-fetch, which left the count at zero forever. A log with rows in
+ * it rendered as "No activity in this range."
+ *
+ * Anything conditional on what a child reports must not be able to unmount that
+ * child. Keeping loading, error and empty inside the page makes that structural.
  */
 const AuditPage = ({ index, filters, shopsById: byId, onLoaded }) => {
   const { events, nextCursor, actions, isLoading, error } = useAuditLog(filters);
 
   useEffect(() => {
-    onLoaded(index, { actions, nextCursor, count: events.length });
-  }, [index, actions, nextCursor, events.length, onLoaded]);
+    onLoaded(index, {
+      actions,
+      nextCursor,
+      count: events.length,
+      // Distinguishes "no rows" from "no rows yet", so the counter does not read
+      // 0 while the first page is still in flight.
+      settled: !isLoading && !error,
+    });
+  }, [index, actions, nextCursor, events.length, isLoading, error, onLoaded]);
 
   if (isLoading) {
     return (
@@ -34,12 +51,23 @@ const AuditPage = ({ index, filters, shopsById: byId, onLoaded }) => {
     );
   }
 
+  // Its own branch, and never folded into the empty message. A failed read
+  // reported as "no activity" is the worst answer this screen can give: it is
+  // indistinguishable from a clean range, and it is wrong.
   if (error) {
     return (
       <p role="alert" className="py-6 text-center text-red-700 dark:text-red-300">
         {error}
       </p>
     );
+  }
+
+  if (events.length === 0) {
+    return index === 0 ? (
+      <p className="text-gray-500 dark:text-gray-400 text-center italic py-8">
+        No activity in this range.
+      </p>
+    ) : null;
   }
 
   return <AuditList events={events} shopsById={byId} />;
@@ -81,7 +109,8 @@ const AdminAudit = () => {
         existing &&
         existing.nextCursor === info.nextCursor &&
         existing.actions === info.actions &&
-        existing.count === info.count
+        existing.count === info.count &&
+        existing.settled === info.settled
       ) {
         return prev;
       }
@@ -104,9 +133,10 @@ const AdminAudit = () => {
   };
 
   const loadedCount = Object.values(pageInfo).reduce(
-    (sum, page) => sum + (page.count ?? 0),
+    (sum, page) => sum + (page.settled ? page.count : 0),
     0
   );
+  const isLoadingFirst = Boolean(first) && !first.settled;
 
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
@@ -129,7 +159,9 @@ const AdminAudit = () => {
                 rows in an unbounded table is the query this whole design
                 avoids — so the number shown is only what has been fetched. */}
             <span className="font-semibold text-gray-800 dark:text-gray-100">
-              {loadedCount} {loadedCount === 1 ? "event" : "events"} loaded
+              {isLoadingFirst
+                ? "Loading…"
+                : `${loadedCount} ${loadedCount === 1 ? "event" : "events"} loaded`}
             </span>
             {" · "}
             {MAX_AUDIT_LIMIT} per page
@@ -138,23 +170,21 @@ const AdminAudit = () => {
       </div>
 
       <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-sm p-4 sm:p-6 transition-colors">
-        {first && first.count === 0 && cursors.length === 1 ? (
-          <p className="text-gray-500 dark:text-gray-400 text-center italic py-8">
-            No activity in this range.
-          </p>
-        ) : (
-          <div className="space-y-3">
-            {cursors.map((cursor, index) => (
-              <AuditPage
-                key={cursor ?? "first"}
-                index={index}
-                filters={{ ...filters, cursor, limit: MAX_AUDIT_LIMIT }}
-                shopsById={byId}
-                onLoaded={handleLoaded}
-              />
-            ))}
-          </div>
-        )}
+        {/* Unconditional, deliberately. Each page renders its own loading,
+            error and empty state; the parent must never wrap these in a
+            condition derived from what they report, because that lets a page
+            still in flight remove itself before its data lands. */}
+        <div className="space-y-3">
+          {cursors.map((cursor, index) => (
+            <AuditPage
+              key={cursor ?? "first"}
+              index={index}
+              filters={{ ...filters, cursor, limit: MAX_AUDIT_LIMIT }}
+              shopsById={byId}
+              onLoaded={handleLoaded}
+            />
+          ))}
+        </div>
 
         {/* A cursor, not a page number. Numbered pages would need a total, and
             counting an append-only table that grows forever is exactly the
