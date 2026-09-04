@@ -82,7 +82,7 @@ const Navbar = () => {
           {/* The mark links home; the shop name beside it does not, because for
               a multi-shop user it is a control and a link wrapping a select
               swallows the click. */}
-          <div className="flex items-center gap-2 flex-shrink-0 min-w-0">
+          <div className="flex items-center gap-2 min-w-0">
             <Link to="/" className="flex-shrink-0">
               <img
                 src="/multipos-icon.svg"

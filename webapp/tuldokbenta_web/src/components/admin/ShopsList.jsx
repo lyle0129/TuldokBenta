@@ -1,9 +1,11 @@
 // components/admin/ShopsList.jsx
 import { Pencil, Receipt } from "lucide-react";
-
-/** Same card and button recipe as PaymentMethodsList, so the Console reads as one app. */
-const actionClass = (colors) =>
-  `flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-4 min-h-11 rounded-md border font-medium transition ${colors}`;
+import {
+  rowCardClass,
+  rowActionsClass,
+  rowActionClass,
+  rowActionAccents,
+} from "../shared/fieldStyles";
 
 /**
  * Every shop, active and inactive.
@@ -34,9 +36,7 @@ const ShopsList = ({
       {shops.map((shop) => (
         <div
           key={shop.id}
-          className={`border border-gray-200 dark:border-gray-700 rounded-lg shadow-sm p-4 sm:p-5 flex flex-col sm:flex-row sm:justify-between sm:items-start gap-4 bg-white dark:bg-gray-800 hover:shadow-md transition ${
-            shop.is_active ? "" : "opacity-70"
-          }`}
+          className={`${rowCardClass} ${shop.is_active ? "" : "opacity-70"}`}
         >
           <div className="min-w-0">
             <h3 className="font-semibold text-lg text-gray-900 dark:text-gray-100 break-words">
@@ -76,15 +76,13 @@ const ShopsList = ({
             )}
           </div>
 
-          <div className="flex sm:flex-col gap-2 text-sm sm:flex-shrink-0">
+          <div className={rowActionsClass}>
             <button
               type="button"
               onClick={() => onToggleActive(shop)}
               aria-pressed={shop.is_active}
-              className={actionClass(
-                shop.is_active
-                  ? "bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200 border-gray-200 dark:border-gray-600 hover:bg-gray-200 dark:hover:bg-gray-600"
-                  : "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200 border-green-200 dark:border-green-700 hover:bg-green-200 dark:hover:bg-green-800"
+              className={rowActionClass(
+                shop.is_active ? rowActionAccents.gray : rowActionAccents.green
               )}
             >
               {shop.is_active ? "Deactivate" : "Reactivate"}
@@ -94,21 +92,17 @@ const ShopsList = ({
             <button
               type="button"
               onClick={() => onPreview(shop)}
-              className={actionClass(
-                "bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-200 border-purple-200 dark:border-purple-700 hover:bg-purple-200 dark:hover:bg-purple-800"
-              )}
+              className={rowActionClass(rowActionAccents.purple)}
             >
-              <Receipt size={16} aria-hidden="true" />
+              <Receipt size={16} className="flex-shrink-0" aria-hidden="true" />
               Receipt
             </button>
             <button
               type="button"
               onClick={() => onEdit(shop)}
-              className={actionClass(
-                "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200 border-yellow-200 dark:border-yellow-700 hover:bg-yellow-200 dark:hover:bg-yellow-800"
-              )}
+              className={rowActionClass(rowActionAccents.yellow)}
             >
-              <Pencil size={16} aria-hidden="true" />
+              <Pencil size={16} className="flex-shrink-0" aria-hidden="true" />
               Edit
             </button>
           </div>

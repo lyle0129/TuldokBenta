@@ -12,8 +12,8 @@ import { filterSales } from "../../utils/filterSales";
 import { isFreeLine } from "../../utils/buildSaleItems";
 import { formatCurrency, formatDateTime, saleTotal } from "../../utils/format";
 import {
-  saleCardClass,
-  saleActionsClass,
+  rowCardClass,
+  rowActionsClass,
   rowActionClass,
   rowActionAccents,
 } from "../shared/fieldStyles";
@@ -133,7 +133,7 @@ const ListSales = ({
               const total = saleTotal(sale);
 
               return (
-                <div key={sale.id} className={saleCardClass}>
+                <div key={sale.id} className={rowCardClass}>
                   {/* Sale details */}
                   <div className="flex-1 min-w-0">
                     <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-100">
@@ -184,7 +184,7 @@ const ListSales = ({
                   </div>
 
                   {/* Action buttons */}
-                  <div className={saleActionsClass}>
+                  <div className={rowActionsClass}>
                     {/* Adding, removing and re-quantifying all happen inside
                         the edit modal now, so they commit as one update. */}
                     <button

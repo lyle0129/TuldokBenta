@@ -32,7 +32,9 @@ const DayPicker = ({ value, onChange }) => {
           <ChevronLeft size={20} />
         </button>
 
-        <span className="flex-1 text-center font-semibold text-gray-800 dark:text-gray-100 min-w-[10rem]">
+        {/* `min-w-0` rather than a fixed floor: 10rem between two 44px arrows
+            is a 264px hard minimum, which overflows a 320px phone. */}
+        <span className="flex-1 min-w-0 text-center font-semibold text-gray-800 dark:text-gray-100 sm:min-w-[10rem]">
           {formatDayLabel(value)}
         </span>
 

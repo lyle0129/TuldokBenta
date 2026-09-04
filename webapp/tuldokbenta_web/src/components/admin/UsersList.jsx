@@ -1,9 +1,12 @@
 // components/admin/UsersList.jsx
 import { KeyRound, Pencil, Store, Trash2 } from "lucide-react";
 import { canDelete } from "../../hooks/useAdminUsers";
-
-const actionClass = (colors) =>
-  `flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-4 min-h-11 rounded-md border font-medium transition disabled:opacity-40 disabled:cursor-not-allowed ${colors}`;
+import {
+  rowCardClass,
+  rowActionsClass,
+  rowActionClass,
+  rowActionAccents,
+} from "../shared/fieldStyles";
 
 const ROLE_LABELS = {
   super_admin: "Super Admin",
@@ -67,9 +70,7 @@ const UsersList = ({
         return (
           <div
             key={user.id}
-            className={`border border-gray-200 dark:border-gray-700 rounded-lg shadow-sm p-4 sm:p-5 flex flex-col sm:flex-row sm:justify-between sm:items-start gap-4 bg-white dark:bg-gray-800 hover:shadow-md transition ${
-              user.is_active ? "" : "opacity-70"
-            }`}
+            className={`${rowCardClass} ${user.is_active ? "" : "opacity-70"}`}
           >
             <div className="min-w-0">
               <h3 className="font-semibold text-lg text-gray-900 dark:text-gray-100 break-words">
@@ -123,37 +124,31 @@ const UsersList = ({
               )}
             </div>
 
-            <div className="grid grid-cols-2 sm:flex sm:flex-col gap-2 text-sm sm:flex-shrink-0">
+            <div className={rowActionsClass}>
               <button
                 type="button"
                 onClick={() => onEdit(user)}
-                className={actionClass(
-                  "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200 border-yellow-200 dark:border-yellow-700 hover:bg-yellow-200 dark:hover:bg-yellow-800"
-                )}
+                className={rowActionClass(rowActionAccents.yellow)}
               >
-                <Pencil size={16} aria-hidden="true" />
+                <Pencil size={16} className="flex-shrink-0" aria-hidden="true" />
                 Edit
               </button>
 
               <button
                 type="button"
                 onClick={() => onAssignShops(user)}
-                className={actionClass(
-                  "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200 border-blue-200 dark:border-blue-700 hover:bg-blue-200 dark:hover:bg-blue-800"
-                )}
+                className={rowActionClass(rowActionAccents.blue)}
               >
-                <Store size={16} aria-hidden="true" />
+                <Store size={16} className="flex-shrink-0" aria-hidden="true" />
                 Shops
               </button>
 
               <button
                 type="button"
                 onClick={() => onResetPassword(user)}
-                className={actionClass(
-                  "bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-200 border-purple-200 dark:border-purple-700 hover:bg-purple-200 dark:hover:bg-purple-800"
-                )}
+                className={rowActionClass(rowActionAccents.purple)}
               >
-                <KeyRound size={16} aria-hidden="true" />
+                <KeyRound size={16} className="flex-shrink-0" aria-hidden="true" />
                 Password
               </button>
 
@@ -170,10 +165,8 @@ const UsersList = ({
                     : undefined
                 }
                 aria-pressed={user.is_active}
-                className={actionClass(
-                  user.is_active
-                    ? "bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200 border-gray-200 dark:border-gray-600 hover:bg-gray-200 dark:hover:bg-gray-600"
-                    : "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200 border-green-200 dark:border-green-700 hover:bg-green-200 dark:hover:bg-green-800"
+                className={rowActionClass(
+                  user.is_active ? rowActionAccents.gray : rowActionAccents.green
                 )}
               >
                 {user.is_active ? "Deactivate" : "Reactivate"}
@@ -187,11 +180,9 @@ const UsersList = ({
                 onClick={() => onDelete(user)}
                 disabled={!deletable || isSelf}
                 title={!deletable ? DELETE_BLOCKED : undefined}
-                className={actionClass(
-                  "bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-200 border-red-200 dark:border-red-700 hover:bg-red-200 dark:hover:bg-red-800"
-                )}
+                className={rowActionClass(rowActionAccents.red)}
               >
-                <Trash2 size={16} aria-hidden="true" />
+                <Trash2 size={16} className="flex-shrink-0" aria-hidden="true" />
                 Delete
               </button>
             </div>

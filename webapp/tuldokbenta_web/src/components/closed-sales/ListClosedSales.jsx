@@ -10,8 +10,8 @@ import { usePaymentMethods } from "../../hooks/usePaymentMethods";
 import { useShopProfile } from "../../hooks/useShopProfile";
 import { buildMethodLookup, resolveMethod } from "../../utils/paymentMethods";
 import {
-  saleCardClass,
-  saleActionsClass,
+  rowCardClass,
+  rowActionsClass,
   rowActionClass,
   rowActionAccents,
 } from "../shared/fieldStyles";
@@ -68,7 +68,7 @@ const ListClosedSales = ({
     <div className="text-gray-800 dark:text-gray-100">
       <div className="space-y-4">
         {currentSales.map((sale) => (
-          <div key={sale.id} className={saleCardClass}>
+          <div key={sale.id} className={rowCardClass}>
             <div className="min-w-0">
               <h3 className="font-semibold text-lg text-gray-900 dark:text-gray-100">
                 Invoice #{sale.invoice_number}
@@ -110,7 +110,7 @@ const ListClosedSales = ({
                 These used to be a fixed column that squeezed the invoice text
                 to a sliver on a narrow screen. The recipe now lives in
                 fieldStyles so all three sales lists share it. */}
-            <div className={saleActionsClass}>
+            <div className={rowActionsClass}>
               <button
                 type="button"
                 onClick={() => revertSale(sale.id)}

@@ -27,8 +27,8 @@ import {
 import { ensureLegacyOfflineMigration } from "../utils/offlineMigration";
 import { useActiveShop } from "../hooks/useActiveShop";
 import {
-  saleCardClass,
-  saleActionsClass,
+  rowCardClass,
+  rowActionsClass,
   rowActionClass,
   rowActionAccents,
 } from "../components/shared/fieldStyles";
@@ -530,7 +530,7 @@ const OpenSalesOffline = () => {
               const blocked = blockedReason(s);
 
               return (
-                <div key={`${s.invoice_number}-${i}`} className={saleCardClass}>
+                <div key={`${s.invoice_number}-${i}`} className={rowCardClass}>
                   <div className="flex-1 min-w-0">
                     <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-100">
                       Invoice #{s.invoice_number}
@@ -590,12 +590,12 @@ const OpenSalesOffline = () => {
                     )}
                   </div>
 
-                  <div className={saleActionsClass}>
+                  <div className={rowActionsClass}>
                     <button
                       type="button"
                       onClick={() => handleCreateOpenSale(s)}
                       disabled={syncingSale !== null || Boolean(blocked)}
-                      className={`${rowActionClass(rowActionAccents.yellow)} disabled:opacity-60 disabled:cursor-not-allowed`}
+                      className={rowActionClass(rowActionAccents.yellow)}
                     >
                       {isSyncing ? "Creating…" : "Create Open Sale"}
                     </button>

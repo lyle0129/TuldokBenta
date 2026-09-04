@@ -1,6 +1,12 @@
 // components/inventory/InventoryList.jsx
 import { ChevronUp, ChevronDown, Plus, Pencil, Trash2 } from "lucide-react";
 import { formatCurrency } from "../../utils/format";
+import {
+  rowCardClass,
+  rowActionsClass,
+  rowActionClass,
+  rowActionAccents,
+} from "../shared/fieldStyles";
 
 /** At or below this (and above zero) an item is flagged as running low. */
 export const LOW_STOCK_THRESHOLD = 5;
@@ -8,9 +14,6 @@ export const LOW_STOCK_THRESHOLD = 5;
 /** Same square arrow button as the closed-sales DayPicker. */
 const arrowClass =
   "w-11 h-11 flex-shrink-0 flex items-center justify-center rounded-md bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-300 dark:hover:bg-gray-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors";
-
-const actionClass = (colors) =>
-  `flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-4 min-h-11 rounded-md border font-medium transition ${colors}`;
 
 /**
  * The item list, as cards rather than the sideways-scrolling table it replaced.
@@ -46,7 +49,7 @@ const InventoryList = ({
         return (
           <div
             key={item.id}
-            className="border border-gray-200 dark:border-gray-700 rounded-lg shadow-sm p-4 sm:p-5 flex flex-col sm:flex-row sm:justify-between sm:items-start gap-4 bg-white dark:bg-gray-800 hover:shadow-md transition"
+            className={rowCardClass}
           >
             <div className="flex items-start gap-3 min-w-0">
               {canReorder && (
@@ -100,37 +103,31 @@ const InventoryList = ({
               </div>
             </div>
 
-            {/* Full-width row on a phone, narrow column from `sm:` up — the
+            {/* Two per row on a phone, a narrow column from `sm:` up — the
                 same shape as the closed-sales action column. */}
-            <div className="flex sm:flex-col gap-2 text-sm sm:flex-shrink-0">
+            <div className={rowActionsClass}>
               <button
                 type="button"
                 onClick={() => onRestock(item)}
-                className={actionClass(
-                  "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200 border-green-200 dark:border-green-700 hover:bg-green-200 dark:hover:bg-green-800"
-                )}
+                className={rowActionClass(rowActionAccents.green)}
               >
-                <Plus size={16} aria-hidden="true" />
+                <Plus size={16} className="flex-shrink-0" aria-hidden="true" />
                 Add Stock
               </button>
               <button
                 type="button"
                 onClick={() => onEdit(item)}
-                className={actionClass(
-                  "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200 border-yellow-200 dark:border-yellow-700 hover:bg-yellow-200 dark:hover:bg-yellow-800"
-                )}
+                className={rowActionClass(rowActionAccents.yellow)}
               >
-                <Pencil size={16} aria-hidden="true" />
+                <Pencil size={16} className="flex-shrink-0" aria-hidden="true" />
                 Edit
               </button>
               <button
                 type="button"
                 onClick={() => onDelete(item)}
-                className={actionClass(
-                  "bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-200 border-red-200 dark:border-red-700 hover:bg-red-200 dark:hover:bg-red-800"
-                )}
+                className={rowActionClass(rowActionAccents.red)}
               >
-                <Trash2 size={16} aria-hidden="true" />
+                <Trash2 size={16} className="flex-shrink-0" aria-hidden="true" />
                 Delete
               </button>
             </div>
