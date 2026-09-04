@@ -1,17 +1,53 @@
 // pages/AdminUsers.jsx
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Plus } from "lucide-react";
 import { useAdminUsers } from "../hooks/useAdminUsers";
 import { useAdminShops, shopsById } from "../hooks/useAdminShops";
 import { useAuth } from "../hooks/useAuth";
 import SearchInput from "../components/shared/SearchInput";
 import ConfirmDialog from "../components/shared/ConfirmDialog";
+import FilterTabs from "../components/shared/FilterTabs";
+import SortControl from "../components/shared/SortControl";
+import Pagination from "../components/shared/Pagination";
 import UsersList from "../components/admin/UsersList";
 import AddUserModal from "../components/admin/AddUserModal";
 import EditUserModal from "../components/admin/EditUserModal";
 import AssignShopsModal from "../components/admin/AssignShopsModal";
 import ResetPasswordModal from "../components/admin/ResetPasswordModal";
 import { alertClass } from "../components/shared/fieldStyles";
+import { sortRows, pageSlice } from "../utils/sortRows";
+
+/** Matches SALES_PER_PAGE on the closed-sales list. */
+const USERS_PER_PAGE = 10;
+
+const ROLE_OPTIONS = [
+  { value: "all", label: "All roles" },
+  { value: "super_admin", label: "Super Admin" },
+  { value: "manager", label: "Manager" },
+  { value: "worker", label: "Worker" },
+];
+
+const STATUS_OPTIONS = [
+  { value: "all", label: "All" },
+  { value: "active", label: "Active" },
+  { value: "inactive", label: "Inactive" },
+];
+
+/**
+ * How each sort field is read off a user. Accessors rather than column names,
+ * for the same reason as on Shops: nothing here reaches the server.
+ *
+ * "Last sign-in" is the one that needs `compareValues`' blanks-last rule — an
+ * account that has never signed in has a null there, and it belongs at the
+ * bottom whichever way the arrow points.
+ */
+const SORT_FIELDS = [
+  { value: "name", label: "Name", get: (u) => u.full_name || u.username },
+  { value: "username", label: "Username", get: (u) => u.username },
+  { value: "role", label: "Role", get: (u) => u.role },
+  { value: "status", label: "Status", get: (u) => Boolean(u.is_active) },
+  { value: "last_login", label: "Last sign-in", get: (u) => u.last_login_at },
+];
 
 /**
  * Who can sign in, as what, and where.
@@ -40,6 +76,11 @@ const AdminUsers = () => {
   const { shops } = useAdminShops();
 
   const [query, setQuery] = useState("");
+  const [role, setRole] = useState("all");
+  const [status, setStatus] = useState("all");
+  const [sortBy, setSortBy] = useState("name");
+  const [sortOrder, setSortOrder] = useState("asc");
+  const [page, setPage] = useState(1);
   const [isAdding, setIsAdding] = useState(false);
   const [editingUser, setEditingUser] = useState(null);
   const [assigningUser, setAssigningUser] = useState(null);
@@ -50,18 +91,34 @@ const AdminUsers = () => {
   const byId = useMemo(() => shopsById(shops), [shops]);
   const term = query.trim().toLowerCase();
 
-  const visibleUsers = useMemo(
-    () =>
-      users.filter((user) => {
-        if (!term) return true;
-        return (
-          user.username?.toLowerCase().includes(term) ||
-          user.full_name?.toLowerCase().includes(term) ||
-          user.role?.toLowerCase().includes(term)
-        );
-      }),
-    [users, term]
-  );
+  const matchingUsers = useMemo(() => {
+    const filtered = users.filter((user) => {
+      if (role !== "all" && user.role !== role) return false;
+      if (status === "active" && !user.is_active) return false;
+      if (status === "inactive" && user.is_active) return false;
+      if (!term) return true;
+      return (
+        user.username?.toLowerCase().includes(term) ||
+        user.full_name?.toLowerCase().includes(term) ||
+        user.role?.toLowerCase().includes(term)
+      );
+    });
+
+    const field = SORT_FIELDS.find((f) => f.value === sortBy) ?? SORT_FIELDS[0];
+    return sortRows(filtered, field.get, sortOrder);
+  }, [users, term, role, status, sortBy, sortOrder]);
+
+  // Narrowing the list under someone standing on page 3 would otherwise leave
+  // them on a blank page with no way back.
+  useEffect(() => {
+    setPage(1);
+  }, [term, role, status, sortBy, sortOrder]);
+
+  const {
+    rows: visibleUsers,
+    totalPages,
+    page: safePage,
+  } = pageSlice(matchingUsers, page, USERS_PER_PAGE);
 
   const activeCount = users.filter((u) => u.is_active).length;
 
@@ -131,6 +188,33 @@ const AdminUsers = () => {
           </button>
         </div>
 
+        <FilterTabs
+          options={ROLE_OPTIONS}
+          value={role}
+          onChange={setRole}
+          ariaLabel="Filter users by role"
+        />
+
+        <FilterTabs
+          options={STATUS_OPTIONS}
+          value={status}
+          onChange={setStatus}
+          ariaLabel="Filter users by status"
+        />
+
+        <SortControl
+          idPrefix="users"
+          fields={SORT_FIELDS}
+          sortBy={sortBy}
+          sortOrder={sortOrder}
+          onChange={(field, order) => {
+            setSortBy(field);
+            setSortOrder(order);
+          }}
+        />
+
+        {/* The unfiltered totals — the figure worth knowing at a glance. The
+            filtered range is Pagination's "Showing X–Y of N". */}
         <div className="pt-1 border-t border-gray-200 dark:border-gray-700">
           <p className="text-sm text-gray-600 dark:text-gray-400 pt-3">
             <span className="font-semibold text-gray-800 dark:text-gray-100">
@@ -160,21 +244,33 @@ const AdminUsers = () => {
             {error}
           </p>
         ) : (
-          <UsersList
-            users={visibleUsers}
-            shopsById={byId}
-            currentUserId={session?.user?.id ?? null}
-            onEdit={openModal(setEditingUser)}
-            onAssignShops={openModal(setAssigningUser)}
-            onResetPassword={openModal(setResettingUser)}
-            onToggleActive={openModal(setTogglingUser)}
-            onDelete={openModal(setDeletingUser)}
-            emptyMessage={
-              users.length === 0
-                ? "No users yet. Create your first one above."
-                : `No users match “${query}”.`
-            }
-          />
+          <>
+            <UsersList
+              users={visibleUsers}
+              shopsById={byId}
+              currentUserId={session?.user?.id ?? null}
+              onEdit={openModal(setEditingUser)}
+              onAssignShops={openModal(setAssigningUser)}
+              onResetPassword={openModal(setResettingUser)}
+              onToggleActive={openModal(setTogglingUser)}
+              onDelete={openModal(setDeletingUser)}
+              emptyMessage={
+                users.length === 0
+                  ? "No users yet. Create your first one above."
+                  : term
+                    ? `No users match “${query}”.`
+                    : "No users match these filters."
+              }
+            />
+
+            <Pagination
+              currentPage={safePage}
+              totalPages={totalPages}
+              onPageChange={setPage}
+              totalItems={matchingUsers.length}
+              pageSize={USERS_PER_PAGE}
+            />
+          </>
         )}
       </div>
 

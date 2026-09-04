@@ -1,14 +1,39 @@
 // pages/AdminShops.jsx
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Plus } from "lucide-react";
 import { useAdminShops } from "../hooks/useAdminShops";
 import SearchInput from "../components/shared/SearchInput";
 import ConfirmDialog from "../components/shared/ConfirmDialog";
+import FilterTabs from "../components/shared/FilterTabs";
+import SortControl from "../components/shared/SortControl";
+import Pagination from "../components/shared/Pagination";
 import ShopsList from "../components/admin/ShopsList";
 import AddShopModal from "../components/admin/AddShopModal";
 import EditShopModal from "../components/admin/EditShopModal";
 import ReceiptPreviewModal from "../components/admin/ReceiptPreviewModal";
 import { alertClass } from "../components/shared/fieldStyles";
+import { sortRows, pageSlice } from "../utils/sortRows";
+
+/** Matches SALES_PER_PAGE on the closed-sales list. */
+const SHOPS_PER_PAGE = 10;
+
+const STATUS_OPTIONS = [
+  { value: "all", label: "All" },
+  { value: "active", label: "Active" },
+  { value: "inactive", label: "Inactive" },
+];
+
+/**
+ * How each sort field is read off a shop. Accessors rather than column names —
+ * nothing here is ever handed to the server, and sorting stays a pure function
+ * of the array already in the cache.
+ */
+const SORT_FIELDS = [
+  { value: "name", label: "Name", get: (s) => s.name },
+  { value: "slug", label: "Slug", get: (s) => s.slug },
+  { value: "status", label: "Status", get: (s) => Boolean(s.is_active) },
+  { value: "created", label: "Date created", get: (s) => s.created_at },
+];
 
 /**
  * Opening and closing branches.
@@ -32,6 +57,10 @@ const AdminShops = () => {
   } = useAdminShops();
 
   const [query, setQuery] = useState("");
+  const [status, setStatus] = useState("all");
+  const [sortBy, setSortBy] = useState("name");
+  const [sortOrder, setSortOrder] = useState("asc");
+  const [page, setPage] = useState(1);
   const [isAdding, setIsAdding] = useState(false);
   const [editingShop, setEditingShop] = useState(null);
   const [editWarning, setEditWarning] = useState(null);
@@ -40,17 +69,32 @@ const AdminShops = () => {
 
   const term = query.trim().toLowerCase();
 
-  const visibleShops = useMemo(
-    () =>
-      shops.filter((shop) => {
-        if (!term) return true;
-        return (
-          shop.name?.toLowerCase().includes(term) ||
-          shop.slug?.toLowerCase().includes(term)
-        );
-      }),
-    [shops, term]
-  );
+  const matchingShops = useMemo(() => {
+    const filtered = shops.filter((shop) => {
+      if (status === "active" && !shop.is_active) return false;
+      if (status === "inactive" && shop.is_active) return false;
+      if (!term) return true;
+      return (
+        shop.name?.toLowerCase().includes(term) ||
+        shop.slug?.toLowerCase().includes(term)
+      );
+    });
+
+    const field = SORT_FIELDS.find((f) => f.value === sortBy) ?? SORT_FIELDS[0];
+    return sortRows(filtered, field.get, sortOrder);
+  }, [shops, term, status, sortBy, sortOrder]);
+
+  // Narrowing the list under someone standing on page 3 would otherwise leave
+  // them on a blank page with no way back.
+  useEffect(() => {
+    setPage(1);
+  }, [term, status, sortBy, sortOrder]);
+
+  const {
+    rows: visibleShops,
+    totalPages,
+    page: safePage,
+  } = pageSlice(matchingShops, page, SHOPS_PER_PAGE);
 
   const activeCount = shops.filter((s) => s.is_active).length;
 
@@ -141,6 +185,26 @@ const AdminShops = () => {
           </button>
         </div>
 
+        <FilterTabs
+          options={STATUS_OPTIONS}
+          value={status}
+          onChange={setStatus}
+          ariaLabel="Filter shops by status"
+        />
+
+        <SortControl
+          idPrefix="shops"
+          fields={SORT_FIELDS}
+          sortBy={sortBy}
+          sortOrder={sortOrder}
+          onChange={(field, order) => {
+            setSortBy(field);
+            setSortOrder(order);
+          }}
+        />
+
+        {/* The unfiltered totals — the figure worth knowing at a glance. The
+            filtered range is Pagination's "Showing X–Y of N". */}
         <div className="pt-1 border-t border-gray-200 dark:border-gray-700">
           <p className="text-sm text-gray-600 dark:text-gray-400 pt-3">
             <span className="font-semibold text-gray-800 dark:text-gray-100">
@@ -170,17 +234,29 @@ const AdminShops = () => {
             {error}
           </p>
         ) : (
-          <ShopsList
-            shops={visibleShops}
-            onEdit={openEdit}
-            onPreview={setPreviewShop}
-            onToggleActive={setTogglingShop}
-            emptyMessage={
-              shops.length === 0
-                ? "No shops yet. Create your first one above."
-                : `No shops match “${query}”.`
-            }
-          />
+          <>
+            <ShopsList
+              shops={visibleShops}
+              onEdit={openEdit}
+              onPreview={setPreviewShop}
+              onToggleActive={setTogglingShop}
+              emptyMessage={
+                shops.length === 0
+                  ? "No shops yet. Create your first one above."
+                  : term
+                    ? `No shops match “${query}”.`
+                    : "No shops match this filter."
+              }
+            />
+
+            <Pagination
+              currentPage={safePage}
+              totalPages={totalPages}
+              onPageChange={setPage}
+              totalItems={matchingShops.length}
+              pageSize={SHOPS_PER_PAGE}
+            />
+          </>
         )}
       </div>
 
