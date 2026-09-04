@@ -99,6 +99,58 @@ describe("when the range has events", () => {
     expect(screen.getByText("Created at")).toBeInTheDocument();
     expect(screen.getByText("2026-08-01 10:00:00.000")).toBeInTheDocument();
   });
+
+  it("names the entity in words rather than in the schema's", async () => {
+    stub(() => Promise.resolve({ events: [event(1)], next_cursor: null, actions: [] }));
+    await renderPage();
+    await settled();
+
+    expect(screen.getByText(/Paid sale/)).toBeInTheDocument();
+    expect(screen.queryByText(/closed_sale/)).toBeNull();
+  });
+
+  it("marks a destructive action differently from a routine one", async () => {
+    const { toneFor } = await import("../utils/auditLabels");
+
+    // Keyed on the verb, so a deletion is red whatever it deleted.
+    expect(toneFor("sale.delete")).toEqual(toneFor("user.delete"));
+    expect(toneFor("sale.delete")).not.toEqual(toneFor("sale.create"));
+    expect(toneFor("sale.create")).not.toEqual(toneFor("sale.update"));
+
+    // The action string comes from the database, so it can be anything —
+    // including a key that would find something on Object.prototype.
+    expect(toneFor("shop.toString")).toEqual(toneFor("auth.login"));
+    expect(toneFor(null).border).toEqual(expect.any(String));
+    expect(toneFor("nodots").border).toEqual(expect.any(String));
+  });
+
+  it("summarises a sale's changed lines instead of printing both arrays", async () => {
+    const saleLine = (name, qty, price) => ({ qty, type: "item", price, item_name: name });
+    stub(() =>
+      Promise.resolve({
+        events: [
+          {
+            ...event(1),
+            action: "sale.update",
+            entity_type: "open_sale",
+            changes: {
+              before: { items: [saleLine("Plastic", 1, 0)] },
+              after: { items: [saleLine("Plastic", 1, 0), saleLine("Surf", 1, 15)] },
+            },
+          },
+        ],
+        next_cursor: null,
+        actions: [],
+      })
+    );
+    await renderPage();
+    await settled();
+
+    expect(screen.getByText("Added")).toBeInTheDocument();
+    expect(screen.getByText("Surf")).toBeInTheDocument();
+    // The unchanged line is not mentioned, and neither is the JSON it came in.
+    expect(screen.queryByText(/item_name/)).toBeNull();
+  });
 });
 
 describe("when the range is genuinely empty", () => {
