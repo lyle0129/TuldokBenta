@@ -9,7 +9,7 @@ export function applyMiddleware(app) {
         "https://pos-spincredible.vercel.app", // replace with your frontend
         "https://multipos-orpin.vercel.app",// test with temporary front end deployment
       ],
-      methods: ["GET", "POST", "PUT", "DELETE"],
+      methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
       credentials: true,
     })
   );
