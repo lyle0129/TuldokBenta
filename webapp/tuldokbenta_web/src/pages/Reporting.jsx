@@ -51,6 +51,9 @@ const initialFilters = () => ({
 const Reporting = () => {
   const [filters, setFilters] = useState(initialFilters);
   const [granularity, setGranularity] = useState("daily");
+  const [chartsOpen, setChartsOpen] = useState(false);
+  const [bookedOpen, setBookedOpen] = useState(false);
+  const [carriedOpen, setCarriedOpen] = useState(false);
 
   const { from, to } = filters;
 
@@ -123,6 +126,22 @@ const Reporting = () => {
     }`;
 
   const countOf = (part) => `(${part.count})`;
+
+  const Chevron = ({ open }) => (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      className={`h-5 w-5 text-gray-500 dark:text-gray-400 transition-transform duration-200 ${open ? "rotate-180" : ""}`}
+      viewBox="0 0 20 20"
+      fill="currentColor"
+      aria-hidden="true"
+    >
+      <path
+        fillRule="evenodd"
+        d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z"
+        clipRule="evenodd"
+      />
+    </svg>
+  );
 
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
@@ -223,41 +242,58 @@ const Reporting = () => {
             />
           </div>
 
-          <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-sm p-4 sm:p-6 transition-colors">
-            <div
-              role="tablist"
-              aria-label="Chart granularity"
-              className="flex gap-2 overflow-x-auto scrollbar-hide -mx-1 px-1"
-            >
-              {GRANULARITIES.map((option) => (
-                <button
-                  key={option.id}
-                  type="button"
-                  role="tab"
-                  aria-selected={granularity === option.id}
-                  onClick={() => setGranularity(option.id)}
-                  className={tabClass(granularity === option.id)}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <RevenueTrendChart
-            chartData={analytics.trend}
-            granularity={granularity}
-          />
-
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <SalesVolumeChart
-              chartData={analytics.trend}
-              granularity={granularity}
-            />
-            <ItemSalesChart items={analytics.lines.items} />
-          </div>
-
           <PaymentBreakdownChart paymentMethodBreakdown={analytics.payments} />
+
+          {/* ── Charts section — collapsed by default ── */}
+          <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-sm transition-colors">
+            <button
+              type="button"
+              onClick={() => setChartsOpen((o) => !o)}
+              aria-expanded={chartsOpen}
+              className="w-full flex items-center justify-between px-4 sm:px-6 py-4 text-left"
+            >
+              <span className="font-semibold text-gray-800 dark:text-gray-100">
+                Charts
+              </span>
+              <Chevron open={chartsOpen} />
+            </button>
+
+            {chartsOpen && (
+              <div className="px-4 sm:px-6 pb-6 space-y-6">
+                <div
+                  role="tablist"
+                  aria-label="Chart granularity"
+                  className="flex gap-2 overflow-x-auto scrollbar-hide -mx-1 px-1"
+                >
+                  {GRANULARITIES.map((option) => (
+                    <button
+                      key={option.id}
+                      type="button"
+                      role="tab"
+                      aria-selected={granularity === option.id}
+                      onClick={() => setGranularity(option.id)}
+                      className={tabClass(granularity === option.id)}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+
+                <RevenueTrendChart
+                  chartData={analytics.trend}
+                  granularity={granularity}
+                />
+
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  <SalesVolumeChart
+                    chartData={analytics.trend}
+                    granularity={granularity}
+                  />
+                  <ItemSalesChart items={analytics.lines.items} />
+                </div>
+              </div>
+            )}
+          </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* All three of these count what left the shop, so they follow
@@ -320,49 +356,85 @@ const Reporting = () => {
             limit={15}
           />
 
-          <ReportSalesList
-            title="Booked in this range"
-            sales={analytics.booked.sales}
-            asOf={rangeEnd}
-            filters={[
-              { id: "all", label: "All" },
-              {
-                id: "paid",
-                label: "Paid",
-                test: (sale, asOf) => isPaidAsOf(sale, asOf),
-              },
-              {
-                id: "unpaid",
-                label: "Unpaid",
-                test: (sale, asOf) => !isPaidAsOf(sale, asOf),
-              },
-            ]}
-            emptyMessage="Nothing was booked in this range."
-            noMatchMessage="No bookings match this filter."
-          />
+          {/* ── Booked in this range — collapsed by default ── */}
+          <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-sm transition-colors">
+            <button
+              type="button"
+              onClick={() => setBookedOpen((o) => !o)}
+              aria-expanded={bookedOpen}
+              className="w-full flex items-center justify-between px-4 sm:px-6 py-4 text-left"
+            >
+              <span className="font-semibold text-gray-800 dark:text-gray-100">
+                Booked in this range
+              </span>
+              <Chevron open={bookedOpen} />
+            </button>
 
+            {bookedOpen && (
+              <div className="px-4 sm:px-6 pb-6">
+                <ReportSalesList
+                  sales={analytics.booked.sales}
+                  asOf={rangeEnd}
+                  filters={[
+                    { id: "all", label: "All" },
+                    {
+                      id: "paid",
+                      label: "Paid",
+                      test: (sale, asOf) => isPaidAsOf(sale, asOf),
+                    },
+                    {
+                      id: "unpaid",
+                      label: "Unpaid",
+                      test: (sale, asOf) => !isPaidAsOf(sale, asOf),
+                    },
+                  ]}
+                  emptyMessage="Nothing was booked in this range."
+                  noMatchMessage="No bookings match this filter."
+                />
+              </div>
+            )}
+          </div>
+
+          {/* ── Carried over — collapsed by default ── */}
           {/* The population behind Collected's "from earlier bookings" line:
               filter this to "Paid in range" and the two must agree. */}
-          <ReportSalesList
-            title="Carried over from before this range"
-            sales={analytics.carriedOver.sales}
-            asOf={rangeEnd}
-            filters={[
-              { id: "all", label: "All" },
-              {
-                id: "paid",
-                label: "Paid in range",
-                test: (sale, asOf) => isPaidAsOf(sale, asOf),
-              },
-              {
-                id: "owed",
-                label: "Still owed",
-                test: (sale, asOf) => !isPaidAsOf(sale, asOf),
-              },
-            ]}
-            emptyMessage="Nothing was owed when this range began."
-            noMatchMessage="No carried-over sales match this filter."
-          />
+          <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-sm transition-colors">
+            <button
+              type="button"
+              onClick={() => setCarriedOpen((o) => !o)}
+              aria-expanded={carriedOpen}
+              className="w-full flex items-center justify-between px-4 sm:px-6 py-4 text-left"
+            >
+              <span className="font-semibold text-gray-800 dark:text-gray-100">
+                Carried over from before this range
+              </span>
+              <Chevron open={carriedOpen} />
+            </button>
+
+            {carriedOpen && (
+              <div className="px-4 sm:px-6 pb-6">
+                <ReportSalesList
+                  sales={analytics.carriedOver.sales}
+                  asOf={rangeEnd}
+                  filters={[
+                    { id: "all", label: "All" },
+                    {
+                      id: "paid",
+                      label: "Paid in range",
+                      test: (sale, asOf) => isPaidAsOf(sale, asOf),
+                    },
+                    {
+                      id: "owed",
+                      label: "Still owed",
+                      test: (sale, asOf) => !isPaidAsOf(sale, asOf),
+                    },
+                  ]}
+                  emptyMessage="Nothing was owed when this range began."
+                  noMatchMessage="No carried-over sales match this filter."
+                />
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>
