@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from "react";
-import { printInvoice } from "../../utils/printInvoice";
+import { usePrintRouter } from "../../hooks/usePrintRouter";
 import EditSaleModal from "../sales-modals/EditSaleModal";
 import PaySaleModal from "../sales-modals/PaySaleModal";
 import DeleteSaleModal from "../sales-modals/DeleteSaleModal";
@@ -42,6 +42,7 @@ const ListSales = ({
   // this list already reads the session — and it is persisted, so a print on the
   // first paint after a reload still has it.
   const { shopProfile } = useShopProfile();
+  const { printReceipt } = usePrintRouter();
 
   const [editError, setEditError] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -205,7 +206,7 @@ const ListSales = ({
 
                     <button
                       type="button"
-                      onClick={() => printInvoice(sale, shopProfile)}
+                      onClick={() => printReceipt(sale, shopProfile)}
                       className={rowActionClass(rowActionAccents.purple)}
                     >
                       Print

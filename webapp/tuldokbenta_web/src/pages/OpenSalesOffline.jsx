@@ -8,7 +8,7 @@ import CartModal from "../components/open-sales/CartModal";
 import EditSaleModal from "../components/sales-modals/EditSaleModal";
 import ConfirmDialog from "../components/shared/ConfirmDialog";
 import SearchInput from "../components/shared/SearchInput";
-import { printInvoice } from "../utils/printInvoice";
+import { usePrintRouter } from "../hooks/usePrintRouter";
 import { buildSaleItems, isFreeLine } from "../utils/buildSaleItems";
 import { freebieGapsFromCart, describeFreebieGaps } from "../utils/freebies";
 import { filterSales } from "../utils/filterSales";
@@ -74,6 +74,7 @@ const OpenSalesOffline = () => {
   // Mutations only. useSales() used to drag three list fetches onto a page that
   // renders none of them — the last thing a flaky connection needs.
   const { createOpenSale } = useSaleMutations();
+  const { printReceipt } = usePrintRouter();
 
   // The shop this till is standing in, and the shops this session may act on.
   // The list is what decides whether a sale queued at another branch can still
@@ -608,7 +609,7 @@ const OpenSalesOffline = () => {
                     </button>
                     <button
                       type="button"
-                      onClick={() => printInvoice(s, shop)}
+                      onClick={() => printReceipt(s, shop)}
                       className={rowActionClass(rowActionAccents.purple)}
                     >
                       Print
@@ -697,7 +698,7 @@ const OpenSalesOffline = () => {
         onConfirm={() => {
           // The server's row, not the queued one: it carries the number the sale
           // actually has and a real created_at.
-          printInvoice(reassigned.created, shop);
+          printReceipt(reassigned.created, shop);
           setReassigned(null);
         }}
       />

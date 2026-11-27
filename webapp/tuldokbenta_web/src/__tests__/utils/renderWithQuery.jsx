@@ -8,6 +8,7 @@
 import React from "react";
 import { render, renderHook } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { BleProvider } from "../../context/BleContext";
 import { setActiveShopId, setSession } from "../../utils/session";
 
 /**
@@ -59,7 +60,9 @@ export const createTestQueryClient = (queryOverrides = {}) =>
 
 const wrapperFor = (client) => {
   const Wrapper = ({ children }) => (
-    <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    <QueryClientProvider client={client}>
+      <BleProvider>{children}</BleProvider>
+    </QueryClientProvider>
   );
   return Wrapper;
 };

@@ -17,6 +17,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import Navbar from "../components/shared/Navbar";
 import { ROLES } from "../components/shared/navItems";
+import { BleProvider } from "../context/BleContext";
 import { clearSession, setSession } from "../utils/session";
 
 // Logout drops the persisted cache; the real client would touch localStorage
@@ -53,17 +54,19 @@ afterEach(() => {
 
 const renderAt = (path = "/open-sales") =>
   render(
-    <MemoryRouter initialEntries={[path]}>
-      <Navbar />
-      <Routes>
-        {/* "/login" is here because logout navigates there. */}
-        {["/login", "/open-sales", "/closed-sales", "/inventory", "/reporting"].map(
-          (p) => (
-            <Route key={p} path={p} element={<main />} />
-          )
-        )}
-      </Routes>
-    </MemoryRouter>
+    <BleProvider>
+      <MemoryRouter initialEntries={[path]}>
+        <Navbar />
+        <Routes>
+          {/* "/login" is here because logout navigates there. */}
+          {["/login", "/open-sales", "/closed-sales", "/inventory", "/reporting"].map(
+            (p) => (
+              <Route key={p} path={p} element={<main />} />
+            )
+          )}
+        </Routes>
+      </MemoryRouter>
+    </BleProvider>
   );
 
 const drawer = () => screen.queryByRole("dialog", { name: "Navigation" });
@@ -77,6 +80,7 @@ describe("sections follow the role", () => {
     expect(screen.queryByRole("button", { name: /Sales/ })).toBeNull();
     expect(screen.queryByRole("button", { name: /Manage/ })).toBeNull();
     expect(screen.queryByRole("link", { name: "Reporting" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Printer" })).toBeNull();
     expect(screen.queryByRole("button", { name: /Logout/ })).toBeNull();
   });
 
@@ -257,5 +261,70 @@ describe("dark mode", () => {
     fireEvent.click(screen.getByRole("button", { name: "Switch to light mode" }));
     expect(document.documentElement.classList.contains("dark")).toBe(false);
     expect(localStorage.getItem("theme")).toBe("light");
+  });
+});
+
+describe("printer navbar tab", () => {
+  it("is visible to workers and opens the shared Modal with printer controls", () => {
+    signIn(ROLES.WORKER);
+    renderAt();
+
+    const trigger = screen.getByRole("button", { name: "Printer" });
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByTestId("printer-status-dot")).toHaveAttribute(
+      "data-ble-state",
+      "disconnected"
+    );
+
+    fireEvent.click(trigger);
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+    const dialog = screen.getByRole("dialog", { name: "Receipt Printer" });
+    expect(dialog).toHaveAttribute("aria-modal", "true");
+    expect(document.body.style.overflow).toBe("hidden");
+    expect(
+      within(dialog).getByText("BLE printing is not available in this browser")
+    ).toBeInTheDocument();
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("dialog", { name: "Receipt Printer" })).toBeNull();
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(document.body.style.overflow).toBe("");
+  });
+
+  it("closes the printer modal when clicking the backdrop or Close button", () => {
+    signIn(ROLES.MANAGER);
+    renderAt();
+
+    fireEvent.click(screen.getByRole("button", { name: "Printer" }));
+    const dialog = screen.getByRole("dialog", { name: "Receipt Printer" });
+
+    // Clicking the backdrop (dialog's parent overlay) dismisses the modal.
+    fireEvent.mouseDown(dialog.parentElement);
+    expect(screen.queryByRole("dialog", { name: "Receipt Printer" })).toBeNull();
+
+    // Reopen and dismiss with the footer Close button.
+    fireEvent.click(screen.getByRole("button", { name: "Printer" }));
+    const reopened = screen.getByRole("dialog", { name: "Receipt Printer" });
+    const closeButtons = within(reopened).getAllByRole("button", { name: "Close" });
+    fireEvent.click(closeButtons[closeButtons.length - 1]);
+    expect(screen.queryByRole("dialog", { name: "Receipt Printer" })).toBeNull();
+  });
+
+  it("shows Connect printer inside the modal when Web Bluetooth is supported", () => {
+    vi.stubGlobal("navigator", {
+      ...globalThis.navigator,
+      bluetooth: { requestDevice: vi.fn() },
+    });
+    vi.stubGlobal("isSecureContext", true);
+
+    signIn(ROLES.WORKER);
+    renderAt();
+
+    fireEvent.click(screen.getByRole("button", { name: "Printer" }));
+    const dialog = screen.getByRole("dialog", { name: "Receipt Printer" });
+    expect(within(dialog).getByText("No printer connected")).toBeInTheDocument();
+    expect(
+      within(dialog).getByRole("button", { name: "Connect printer" })
+    ).toBeEnabled();
   });
 });

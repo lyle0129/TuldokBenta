@@ -20,10 +20,14 @@
  * queue.
  */
 import React from "react";
-import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
+import { render as rtlRender, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import fc from "fast-check";
+import { BleProvider } from "../context/BleContext";
 import OpenSalesOffline from "../pages/OpenSalesOffline";
+
+const render = (ui, options) =>
+  rtlRender(ui, { wrapper: BleProvider, ...options });
 import { clearQueryCache } from "../queryClient";
 import { clearSession, setActiveShopId, setSession } from "../utils/session";
 import { resetOfflineMigrationLatch } from "../utils/offlineMigration";

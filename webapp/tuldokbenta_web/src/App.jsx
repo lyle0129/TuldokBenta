@@ -23,6 +23,7 @@ import RequireRole from "./components/shared/RequireRole";
 import { rolesForPath } from "./components/shared/navItems";
 import Footer from "./components/shared/Footer";
 import OpenSalesOffline from "./pages/OpenSalesOffline";
+import { BleProvider } from "./context/BleContext";
 
 /**
  * The nav shell every signed-in page renders inside.
@@ -30,14 +31,17 @@ import OpenSalesOffline from "./pages/OpenSalesOffline";
  * A layout route rather than a Navbar mounted above <Routes>, because /login and
  * /change-password must render without it: a signed-out user has no navigation
  * to show, and a forced password change should not offer links away from itself.
+ *
+ * BleProvider lives here so a paired thermal printer stays connected while the
+ * cashier moves between Open Sales, Closed Sales, and Offline Sales.
  */
 const AppShell = () => (
-  <>
+  <BleProvider>
     <Navbar />
     <main className="px-4 sm:px-6 md:px-8 py-4 sm:py-6">
       <Outlet />
     </main>
-  </>
+  </BleProvider>
 );
 
 /**

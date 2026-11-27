@@ -10,6 +10,7 @@ import { forgetShopList } from "../../hooks/useActiveShop";
 import { useDarkMode } from "../../hooks/useDarkMode";
 import NavDrawer from "./NavDrawer";
 import NavMenu from "./NavMenu";
+import PrinterConnectModal, { PrinterNavButton } from "./PrinterConnectModal";
 import ShopPicker from "./ShopPicker";
 import { navRowClass, visibleGroups } from "./navItems";
 
@@ -20,6 +21,7 @@ const Navbar = () => {
   const session = useAuth();
   const [darkMode, toggleDarkMode] = useDarkMode();
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [printerOpen, setPrinterOpen] = useState(false);
 
   const user = session?.user ?? null;
   const groups = visibleGroups(user?.role ?? null);
@@ -93,58 +95,69 @@ const Navbar = () => {
             <ShopPicker />
           </div>
 
-          <div className="hidden md:flex items-center gap-1">
-            {groups.map((group) =>
-              // A group of one is a destination, not a menu — making Reporting
-              // a dropdown would cost a click to reach a single page.
-              group.items.length === 1 ? (
-                <NavLink
-                  key={group.id}
-                  to={group.items[0].to}
-                  className={({ isActive }) =>
-                    `px-3 min-h-11 rounded-md text-sm font-medium transition-colors flex items-center ${
-                      isActive
-                        ? "bg-blue-50 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
-                        : "text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
-                    }`
-                  }
-                >
-                  {group.label}
-                </NavLink>
-              ) : (
-                <NavMenu key={group.id} group={group} />
-              )
+          <div className="flex items-center gap-1">
+            <div className="hidden md:flex items-center gap-1">
+              {groups.map((group) =>
+                // A group of one is a destination, not a menu — making Reporting
+                // a dropdown would cost a click to reach a single page.
+                group.items.length === 1 ? (
+                  <NavLink
+                    key={group.id}
+                    to={group.items[0].to}
+                    className={({ isActive }) =>
+                      `px-3 min-h-11 rounded-md text-sm font-medium transition-colors flex items-center ${
+                        isActive
+                          ? "bg-blue-50 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
+                          : "text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+                      }`
+                    }
+                  >
+                    {group.label}
+                  </NavLink>
+                ) : (
+                  <NavMenu key={group.id} group={group} />
+                )
+              )}
+            </div>
+
+            {user && (
+              <PrinterNavButton
+                open={printerOpen}
+                onClick={() => setPrinterOpen(true)}
+              />
             )}
 
-            <span
-              aria-hidden="true"
-              className="mx-2 h-6 w-px bg-gray-200 dark:bg-gray-700"
-            />
+            <div className="hidden md:flex items-center gap-1">
+              <span
+                aria-hidden="true"
+                className="mx-2 h-6 w-px bg-gray-200 dark:bg-gray-700"
+              />
+
+              <button
+                type="button"
+                onClick={toggleDarkMode}
+                aria-label={
+                  darkMode ? "Switch to light mode" : "Switch to dark mode"
+                }
+                className="w-11 h-11 flex items-center justify-center rounded-md text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+              >
+                <ThemeIcon size={18} aria-hidden="true" />
+              </button>
+              {signedInAs("max-w-32")}
+              {sessionAction()}
+            </div>
 
             <button
               type="button"
-              onClick={toggleDarkMode}
-              aria-label={
-                darkMode ? "Switch to light mode" : "Switch to dark mode"
-              }
-              className="w-11 h-11 flex items-center justify-center rounded-md text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+              className="md:hidden -mr-2 w-11 h-11 flex items-center justify-center rounded-md text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+              onClick={() => setDrawerOpen(true)}
+              aria-label="Open navigation"
+              aria-expanded={drawerOpen}
+              aria-controls={DRAWER_ID}
             >
-              <ThemeIcon size={18} aria-hidden="true" />
+              <Menu size={22} aria-hidden="true" />
             </button>
-            {signedInAs("max-w-32")}
-            {sessionAction()}
           </div>
-
-          <button
-            type="button"
-            className="md:hidden -mr-2 w-11 h-11 flex items-center justify-center rounded-md text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-            onClick={() => setDrawerOpen(true)}
-            aria-label="Open navigation"
-            aria-expanded={drawerOpen}
-            aria-controls={DRAWER_ID}
-          >
-            <Menu size={22} aria-hidden="true" />
-          </button>
         </div>
       </nav>
 
@@ -157,6 +170,13 @@ const Navbar = () => {
         of the viewport: a stub panel with the links crushed out of it by
         `flex-1` and the page showing through underneath.
       */}
+      {user && (
+        <PrinterConnectModal
+          open={printerOpen}
+          onClose={() => setPrinterOpen(false)}
+        />
+      )}
+
       <NavDrawer
         id={DRAWER_ID}
         open={drawerOpen}

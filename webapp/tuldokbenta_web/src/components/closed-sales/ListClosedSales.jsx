@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { printInvoice } from "../../utils/printInvoice";
+import { usePrintRouter } from "../../hooks/usePrintRouter";
 import Pagination from "../shared/Pagination";
 import EditClosedSaleModal from "../sales-modals/EditClosedSaleModal";
 import CorrectDatesModal from "../admin/CorrectDatesModal";
@@ -36,6 +36,7 @@ const ListClosedSales = ({
 
   // The receipt's header, read the same way the payment methods below are.
   const { shopProfile } = useShopProfile();
+  const { printReceipt } = usePrintRouter();
 
   // Rows store the method code; this turns it back into the admin's label.
   const { paymentMethods } = usePaymentMethods();
@@ -146,7 +147,7 @@ const ListClosedSales = ({
 
               <button
                 type="button"
-                onClick={() => printInvoice(sale, shopProfile)}
+                onClick={() => printReceipt(sale, shopProfile)}
                 className={rowActionClass(rowActionAccents.purple)}
               >
                 Print
