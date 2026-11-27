@@ -4,12 +4,10 @@ import express from "express";
 export function applyMiddleware(app) {
   app.use(
     cors({
-      origin: [
-        "http://localhost:5173", // local dev
-        "https://pos-spincredible.vercel.app", // replace with your frontend
-        "https://multipos-orpin.vercel.app",// test with temporary front end deployment
-      ],
-      methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
+      // Reflect the request origin so any frontend origin is allowed while
+      // still supporting `credentials: true` (browsers reject `*` with credentials).
+      origin: true,
+      methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
       credentials: true,
     })
   );
